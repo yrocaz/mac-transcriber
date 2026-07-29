@@ -8,6 +8,7 @@ Supporting research (in-repo, with links to all sources):
 
 - [GitHub OSS ecosystem research](../../research/2026-07-27-github-oss-research.md)
 - [Apple SpeechAnalyzer documentation research](../../research/2026-07-27-apple-speechanalyzer-docs.md)
+- [FluidAudio evaluation notes](../../research/2026-07-27-fluidaudio-notes.md)
 - [Verification spikes run on this machine](../../research/spikes/README.md)
 
 ## Requirements (from user)
@@ -25,7 +26,7 @@ Supporting research (in-repo, with links to all sources):
 - No native Node binding exists; every ecosystem project bridges TypeScript → Swift by spawning a helper binary speaking JSON over stdio (validated by [node-apple-speech](https://github.com/mybigday/node-apple-speech)).
 - Video containers (mp4/mov) with audio tracks AND plain audio files (mp3/m4a/wav/aiff/caf) open directly via `AVAudioFile` on macOS 26.5 — verified on this machine; no ffmpeg required (yap's approach). mkv/webm/ogg are unsupported by AVFoundation and out of scope for v1.
 - SpeechAnalyzer has **no speaker diarization** — speaker labels come from a second engine, [FluidAudio](https://github.com/FluidInference/FluidAudio) (2.5k⭐, Apache-2.0, CoreML/ANE), following the hybrid proven by [swift-scribe](https://github.com/FluidInference/swift-scribe) (see §8).
-- FluidAudio diarization models download from HuggingFace on first use (network required once, then fully offline; `ModelHub.offlineMode` / `REGISTRY_URL` exist for control). SpeechAnalyzer models are OS-managed and already installed.
+- FluidAudio diarization models download from HuggingFace on first use (network required once, then fully offline; `ModelHub.offlineMode` / `REGISTRY_URL` exist for control). SpeechAnalyzer models are OS-managed; requested locales are downloaded as needed.
 - Known MP3 edge case (from yap): malformed MP3s that misreport packet count cause `eofErr`; yap's remedy (probe the file tail, re-export to temp M4A via `AVAssetExportSession` when short) is CC0 and adopted in the helper.
 - Only English locale models are installed today; other locales are downloadable on demand and the helper handles that automatically.
 - Apple limits concurrent analyses ("conservative number", `insufficientResources` beyond it) → serial job processing.
@@ -44,12 +45,14 @@ media-transcriber/
 
 The server spawns `helper/.build/release/speech-helper` per job and consumes NDJSON events from its stdout. No database — job records are JSON files on disk.
 
+**Network exposure:** Fastify binds to loopback only (`127.0.0.1`, and `::1` if IPv6 is enabled) — never `0.0.0.0`. The API has no authentication, can list jobs, read transcripts, and submit arbitrary readable local paths; loopback-only binding is the security boundary and is hardcoded, not configurable, in v1.
+
 ## 2. HTTP API
 
 | Endpoint | Behavior |
 |---|---|
 | `POST /jobs` | Body `{ path, locale?, diarize? }` (`diarize` defaults `true`) → validate file exists/readable → `202 { id, status: "queued" }` (both output formats are always produced) |
-| `GET /jobs/:id` | Job record: `status` (queued/running/done/error), `progress` (0–1), timings, error message |
+| `GET /jobs/:id` | Job record: `status` (queued/running/done/error), `progress` (0–1, overall), `warnings[]` (persisted, e.g. `diarizationFailed`), timings, error message |
 | `GET /jobs` | List jobs, newest first |
 | `GET /jobs/:id/transcript.json` | Structured transcript |
 | `GET /jobs/:id/transcript.srt` | Subtitles |
@@ -89,7 +92,8 @@ Assembled from proven sources, not designed from scratch:
 **CLI contract**
 
 - `speech-helper transcribe --input <path> --locale <bcp47> [--no-diarize]` → NDJSON events on stdout:
-  `{"type":"ready"}` · `{"type":"model_download","progress":0.42}` · `{"type":"progress","stage":"transcribe"|"diarize","pct":0.42}` · `{"type":"segment","start":1.2,"end":4.5,"text":"..."}` · `{"type":"speakers","segments":[{"start":0.0,"end":12.3,"speaker":"S1"}],"count":2}` · `{"type":"warning","code":"diarizationFailed","message":"..."}` · `{"type":"done","durationSec":1830.2}` · `{"type":"error","code":"noModel","message":"..."}`
+  `{"type":"ready","durationSec":1830.2}` · `{"type":"model_download","progress":0.42}` · `{"type":"progress","stage":"transcribe"|"diarize","pct":0.42}` · `{"type":"segment","start":1.2,"end":4.5,"text":"..."}` · `{"type":"speakers","segments":[{"start":0.0,"end":12.3,"speaker":"S1"}],"count":2}` · `{"type":"warning","code":"diarizationFailed","message":"..."}` · `{"type":"done","durationSec":1830.2}` · `{"type":"error","code":"noModel","message":"..."}`
+- `ready` fires after the input file is opened (duration = `Double(audioFile.length) / processingFormat.sampleRate`), giving the server `durationSec` up front for timeout budgeting (§6).
 - `speech-helper status` → JSON: availability + supported/installed locales (backs `/health`).
 - Exit 0 on success; nonzero with a final `error` event on failure.
 
@@ -100,8 +104,8 @@ Assembled from proven sources, not designed from scratch:
 3. `SpeechTranscriber(locale:, transcriptionOptions: [], reportingOptions: [], attributeOptions: [.audioTimeRange])` — file transcription needs no volatile results ([WWDC25 session 277](https://developer.apple.com/videos/play/wwdc2025/277/)).
 4. Start the `results` consumer task FIRST (results dropped otherwise), then `AVAudioFile(forReading:)` → `analyzeSequence(from:)` → `finalizeAndFinish(through:)`, or `cancelAndFinishNow()` on nil — the [argmax example](https://github.com/argmaxinc/apple-speechanalyzer-cli-example) pattern; the file path is the battle-tested one on 26.x ([forum 818005](https://developer.apple.com/forums/thread/818005)).
 5. Progress = `result.resultsFinalizationTime.seconds / fileDuration` where duration = `Double(audioFile.length) / processingFormat.sampleRate` (yap's method).
-6. MP3 edge case: adopt yap's `TranscriptionAudioFile` fix (CC0) — probe the last ≤4096 frames; if the file reads short (`eofErr` from misreported packet count), re-export to a temp M4A via `AVAssetExportSession(presetName: AVAssetExportPresetAppleM4A)` and transcribe that, with guaranteed temp-file cleanup.
-7. Diarization (unless `--no-diarize`): after transcription, decode the same file to 16 kHz mono Float32 (AVAudioFile + `AVAudioConverter` with `primeMethod = .none` — the BufferConverter pattern from Apple's official sample), then FluidAudio `OfflineDiarizerManager` (Pyannote 3.1): `prepareModels()` → `process(audio:)` → speaker segments `{speakerId, startTimeSeconds, endTimeSeconds}` ([FluidAudio README](https://github.com/FluidInference/FluidAudio)). Each sentence segment gets the speaker with maximum time overlap; sentences with no overlapping speaker turn keep `null`.
+6. MP3 edge case: adopt yap's `TranscriptionAudioFile` fix (CC0) — probe the last ≤4096 frames; if the file reads short (`eofErr` from misreported packet count), re-export to a temp M4A via `AVAssetExportSession(presetName: AVAssetExportPresetAppleM4A)`. Input preparation happens ONCE, before `ready`: the resulting "prepared URL" (original path, or repaired temp M4A) is the single input for BOTH transcription and diarization, and temp cleanup runs only after both stages finish (success or failure).
+7. Diarization (unless `--no-diarize`): after transcription, decode the prepared URL to 16 kHz mono Float32 (AVAudioFile + `AVAudioConverter` with `primeMethod = .none` — the BufferConverter pattern from Apple's official sample), then FluidAudio `OfflineDiarizerManager` (Pyannote Community-1 offline pipeline: powerset segmentation + WeSpeaker embeddings + VBx clustering; FluidAudio pinned at v0.15.5): `prepareModels()` → `process(audio:)` → speaker segments `{speakerId, startTimeSeconds, endTimeSeconds}` ([FluidAudio README](https://github.com/FluidInference/FluidAudio)). Each sentence segment gets the speaker with maximum time overlap; sentences with no overlapping speaker turn keep `null`.
 8. Diarization failures are non-fatal by design: any error (model download, processing) emits a `warning` event and the job completes with `metadata.diarization: "failed"`, transcript intact.
 9. No `modelRetention` tuning in v1 — the helper is a stateless per-job process; observed model spin-up is ~0.3s.
 
@@ -117,7 +121,12 @@ Assembled from proven sources, not designed from scratch:
 - Request validation with zod: path exists, is a file, readable, extension in the supported set (`mp4 mov m4v mp3 m4a wav aiff aif caf`) — unsupported extensions rejected at POST time with a message listing supported formats, rather than failing later in the helper.
 - Helper maps [`SFSpeechError.Code`](https://developer.apple.com/documentation/speech/sfspeecherror/code) to friendly codes/messages: `noModel`, `cannotAllocateUnsupportedLocale`, `insufficientResources`, `audioReadFailed`, etc.
 - No-audio-track or unsupported container (mkv/webm) fails fast at `AVAudioFile` open with a clear message. ffmpeg fallback = documented future option, not built now.
-- Helper crash / nonzero exit / stall (timeout = max(2× realtime, 5 min)) → job marked error, stderr captured into the job record.
+- Helper supervision uses three distinct timeouts, all resulting in kill + job error with stderr captured:
+  - **Startup:** 60s from spawn to the `ready` event (covers file-open and MP3 repair).
+  - **Inactivity:** 120s with no NDJSON event of any type (model downloads stay alive via their `model_download` progress events).
+  - **Total runtime:** `max(2 × durationSec, 10 min)`, armed once `ready` supplies `durationSec`.
+- **Overall job progress** is a monotonic mapping of stage progress: with diarization enabled, `transcribe` maps to 0–0.9 and `diarize` to 0.9–1.0; with `diarize: false`, `transcribe` maps to 0–1.0. The server clamps updates so reported progress never decreases.
+- Diarization `warning` events are appended to `warnings[]` in `job.json` (persisted, returned by `GET /jobs/:id`) so degradation remains observable after the fact.
 
 ## 7. Testing
 
@@ -129,7 +138,7 @@ Assembled from proven sources, not designed from scratch:
 
 SpeechAnalyzer has no diarization module, so speaker labels come from a second, purpose-built engine — the hybrid used in practice by [swift-scribe](https://github.com/FluidInference/swift-scribe) (FluidInference's own app pairs Apple's SpeechAnalyzer for words with their FluidAudio for speakers):
 
-- **Engine:** [FluidAudio](https://github.com/FluidInference/FluidAudio) (2.5k⭐, Apache-2.0), Pyannote 3.1 offline pipeline via `OfflineDiarizerManager` — the batch-appropriate choice among its three diarizer implementations. CoreML on the Neural Engine; fully local after a one-time model download from HuggingFace.
+- **Engine:** [FluidAudio](https://github.com/FluidInference/FluidAudio) (2.5k⭐, Apache-2.0, pinned at v0.15.5), Pyannote **Community-1** offline pipeline via `OfflineDiarizerManager` (powerset segmentation + WeSpeaker embeddings + VBx clustering) — the batch-appropriate choice; its streaming diarizers (LS-EEND, Sortformer, legacy Pyannote 3.1) are not used. CoreML on the Neural Engine; fully local after a one-time model download from HuggingFace.
 - **Merge strategy:** maximum time-overlap between each transcript sentence and diarized speaker turns. Anonymous labels (`S1`, `S2`) ordered by first appearance.
 - **Degradation:** diarization failure never fails the job — `metadata.diarization: "failed"`, `speaker: null`, transcript delivered.
 - **Accuracy realism:** diarization is imperfect on crosstalk-heavy audio; labels are an editing aid for article writing, not ground truth.

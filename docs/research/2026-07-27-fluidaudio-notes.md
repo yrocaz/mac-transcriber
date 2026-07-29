@@ -7,7 +7,7 @@ Evaluated when the user asked whether FluidAudio could replace the whole build. 
 ## Capabilities (verbatim-based)
 
 - ASR: "Parakeet TDT v3 (0.6b) and other TDT/CTC models for batch transcription supporting 25 European languages and Japanese"; ~190× realtime on M4 Pro. (Not used — SpeechAnalyzer covers this, OS-managed, more locales incl. CJK, verified locally.)
-- Diarization: three implementations — Pyannote 3.1 pipeline (offline), LS-EEND (streaming, ≤10 speakers), Sortformer (streaming, ≤4 speakers). **Pyannote offline is our fit (batch files).**
+- Diarization: offline = **Pyannote Community-1** pipeline (powerset segmentation + WeSpeaker + VBx clustering) via `OfflineDiarizerManager`; streaming = LS-EEND (default, ≤10 speakers), Sortformer (≤4), legacy Pyannote 3.1. **Community-1 offline is our fit (batch files).** Pinned version: **v0.15.5** (released 2026-07-07). Correction 2026-07-29: an earlier draft of this note mislabeled the offline pipeline as "Pyannote 3.1"; re-verified against the README.
 - Speaker embeddings: "Generate speaker embeddings for voice comparison and clustering" → future path to naming known/recurring voices.
 - Also: Silero VAD, TTS (not needed).
 

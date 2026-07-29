@@ -2,7 +2,7 @@
 
 Date: 2026-07-27. Star counts and last-push dates are live values from that day, collected via the GitHub API.
 
-Purpose: identify the highest-rated open-source projects using Apple's SpeechAnalyzer / SpeechTranscriber API (Speech framework, macOS 26 / iOS 26) to learn documented, proven patterns before building our TypeScript video-transcription service.
+Purpose: identify the highest-rated open-source projects using Apple's SpeechAnalyzer / SpeechTranscriber API (Speech framework, macOS 26 / iOS 26) to learn documented, proven patterns before building our TypeScript media-transcription service.
 
 ---
 
