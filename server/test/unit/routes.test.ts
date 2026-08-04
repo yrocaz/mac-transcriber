@@ -150,13 +150,26 @@ describe("FIFO queue, concurrency 1", () => {
 
   it("keeps processing later jobs through the real queue even after an earlier spawn failure", async () => {
     // Exercises the full app/queue wiring (not just the supervisor in
-    // isolation) against a broken helper path, then a job that should
-    // still complete — the queue must not wedge on the first job's failure.
+    // isolation) against a broken helper path: TWO jobs POSTed back to
+    // back, both against the same broken helperPath. The discriminating
+    // assertion is job 2 reaching a terminal state at all — if
+    // HelperSupervisor.run()'s promise failed to resolve after job 1's
+    // spawn failure (the Task 3 wedge bug this regression test exists for),
+    // JobQueue.drain() would never shift job 2 off the pending array and it
+    // would stay "queued" forever. A single-job version of this test would
+    // still pass even with a permanently wedged queue, since it never
+    // observes whether the queue moved on.
     const { app, store } = buildTestApp({ helperPath: "/definitely/does/not/exist/speech-helper" });
-    const bad = await app.inject({ method: "POST", url: "/jobs", payload: { path: fixtureMediaPath("basic.wav") } });
-    const badId = bad.json().id as string;
-    await waitFor(() => store.getJob(badId)?.status === "error", { timeoutMs: 2000 });
-    expect(store.getJob(badId)?.error?.code).toBe("spawnFailed");
+    const first = await app.inject({ method: "POST", url: "/jobs", payload: { path: fixtureMediaPath("basic.wav") } });
+    const second = await app.inject({ method: "POST", url: "/jobs", payload: { path: fixtureMediaPath("basic2.wav") } });
+    const firstId = first.json().id as string;
+    const secondId = second.json().id as string;
+
+    await waitFor(() => store.getJob(firstId)?.status === "error", { timeoutMs: 2000 });
+    await waitFor(() => store.getJob(secondId)?.status === "error", { timeoutMs: 2000 });
+
+    expect(store.getJob(firstId)?.error?.code).toBe("spawnFailed");
+    expect(store.getJob(secondId)?.error?.code).toBe("spawnFailed");
   });
 });
 
