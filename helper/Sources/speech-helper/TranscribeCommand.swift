@@ -5,10 +5,13 @@ import Foundation
 import Speech
 
 /// `speech-helper transcribe --input <path> --locale <bcp47> [--no-diarize]`
-/// — spec §4. Implements the transcription core only (Task 1); diarization
-/// (spec §4 items 7-8, §8) arrives in Task 2. `--no-diarize` is accepted here
-/// as a no-op beyond suppressing nothing yet, since no diarize-stage events
-/// are emitted regardless.
+/// — spec §4. Transcription (Task 1) plus diarization (spec §4 items 7-8,
+/// §8): after transcription, the prepared audio is diarized via FluidAudio's
+/// `OfflineDiarizerManager`, emitting `progress{stage:"diarize"}` and a
+/// `speakers` event. `--no-diarize` skips the stage entirely — no diarize
+/// progress, no `speakers` event. Diarization failures never fail the job:
+/// any error is reported as a `warning{code:"diarizationFailed"}` and the job
+/// still completes with a normal `done`.
 struct TranscribeCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "transcribe",
@@ -21,14 +24,10 @@ struct TranscribeCommand: AsyncParsableCommand {
     @Option(name: .long, help: "BCP-47 locale for transcription, e.g. en-US.")
     var locale: String
 
-    @Flag(name: .customLong("no-diarize"), help: "Skip diarization. No-op in this build (diarization ships in Task 2).")
+    @Flag(name: .customLong("no-diarize"), help: "Skip diarization entirely: no diarize-stage progress events, no speakers event.")
     var noDiarize: Bool = false
 
     func run() async throws {
-        if noDiarize {
-            logStderr("--no-diarize passed; diarization is not implemented in this build, so this has no additional effect.")
-        }
-
         let inputURL = URL(fileURLWithPath: input)
         var preparedAudio: PreparedAudio?
         // Cleanup runs exactly once at exit, on both the success and failure
@@ -134,6 +133,34 @@ struct TranscribeCommand: AsyncParsableCommand {
             }
 
             EventEmitter.shared.emit(.progress(stage: "transcribe", pct: 1.0))
+
+            // Diarization (spec §4 items 7-8, §8): non-fatal by design. Any
+            // failure here — model download, decode, processing — degrades to
+            // a `warning` rather than failing the job; the transcript
+            // produced above is delivered intact either way.
+            if !noDiarize {
+                do {
+                    let turns = try await SpeakerDiarizer.diarize(prepared.url) { chunksProcessed, totalChunks in
+                        let pct = totalChunks > 0 ? Double(chunksProcessed) / Double(totalChunks) : 1.0
+                        EventEmitter.shared.emit(.progress(stage: "diarize", pct: roundedToMillisecond(min(max(pct, 0), 1))))
+                    }
+                    EventEmitter.shared.emit(.progress(stage: "diarize", pct: 1.0))
+
+                    let payload = turns.map { SpeakerTurnPayload(start: $0.start, end: $0.end, speaker: $0.speaker) }
+                    let speakerCount = Set(turns.map(\.speaker)).count
+                    EventEmitter.shared.emit(.speakers(segments: payload, count: speakerCount))
+                } catch {
+                    // Deliberately not `mapToHelperError`'s code taxonomy
+                    // (noModel/unavailable/etc. are for the transcription
+                    // engine) — every diarization failure collapses to the
+                    // single `diarizationFailed` warning code per spec §8,
+                    // reusing only its message-extraction behavior.
+                    let message = mapToHelperError(error).message
+                    logStderr("Diarization failed, degrading to warning: \(message)")
+                    EventEmitter.shared.emit(.warning(code: "diarizationFailed", message: message))
+                }
+            }
+
             EventEmitter.shared.emit(.done(durationSec: roundedToMillisecond(prepared.durationSec)))
         } catch {
             let helperError = mapToHelperError(error)

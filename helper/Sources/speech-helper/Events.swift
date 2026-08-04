@@ -9,6 +9,7 @@ enum Event {
     case modelDownload(progress: Decimal)
     case progress(stage: String, pct: Decimal)
     case segment(start: Decimal, end: Decimal, text: String)
+    case speakers(segments: [SpeakerTurnPayload], count: Int)
     case warning(code: String, message: String)
     case done(durationSec: Decimal)
     case error(code: String, message: String)
@@ -23,6 +24,8 @@ enum Event {
             return ["type": "progress", "stage": stage, "pct": pct]
         case let .segment(start, end, text):
             return ["type": "segment", "start": start, "end": end, "text": text]
+        case let .speakers(segments, count):
+            return ["type": "speakers", "segments": segments.map(\.json), "count": count]
         case let .warning(code, message):
             return ["type": "warning", "code": code, "message": message]
         case let .done(durationSec):
@@ -30,6 +33,20 @@ enum Event {
         case let .error(code, message):
             return ["type": "error", "code": code, "message": message]
         }
+    }
+}
+
+/// One diarized speaker turn, as carried in the `speakers` event's `segments`
+/// array (spec §4: `{"start":0.0,"end":12.3,"speaker":"S1"}`). Raw diarization
+/// output — NOT merged with transcript sentences; that overlap merge is the
+/// server's job (spec §7's "speaker-overlap merge logic" TS unit test).
+struct SpeakerTurnPayload {
+    let start: Decimal
+    let end: Decimal
+    let speaker: String
+
+    var json: [String: Any] {
+        ["start": start, "end": end, "speaker": speaker]
     }
 }
 

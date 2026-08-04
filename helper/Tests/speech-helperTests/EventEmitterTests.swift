@@ -107,4 +107,52 @@ import Testing
         #expect(lines.count == 5)
         #expect(lines.last?.contains("\"type\":\"done\"") == true)
     }
+
+    /// Task 2: diarization's `speakers` and `warning` events must land BEFORE
+    /// the terminal `done`/`error`, per the interface note in the task brief
+    /// ("emit your warning and speakers events BEFORE the terminal event").
+    /// This exercises the wire shape of `.speakers` (segments array + count)
+    /// and confirms it composes with the existing terminal-event guarantee
+    /// rather than special-casing it.
+    @Test func speakersAndWarningAreNotTerminalAndPrecedeDone() throws {
+        let emitter = EventEmitter()
+
+        let lines = Self.capturingStdout {
+            emitter.emit(.ready(durationSec: 41.698))
+            emitter.emit(.progress(stage: "transcribe", pct: 1))
+            emitter.emit(.progress(stage: "diarize", pct: 1))
+            emitter.emit(.speakers(
+                segments: [
+                    SpeakerTurnPayload(start: 0.0, end: 5.8, speaker: "S1"),
+                    SpeakerTurnPayload(start: 6.4, end: 12.1, speaker: "S2"),
+                ],
+                count: 2
+            ))
+            emitter.emit(.done(durationSec: 41.698))
+            // A stray post-terminal speakers event should also be dropped.
+            emitter.emit(.speakers(segments: [], count: 0))
+        }
+
+        #expect(lines.count == 5)
+        #expect(lines[3].contains("\"type\":\"speakers\""))
+        #expect(lines[3].contains("\"count\":2"))
+        #expect(lines[3].contains("\"speaker\":\"S1\""))
+        #expect(lines[3].contains("\"speaker\":\"S2\""))
+        #expect(lines.last?.contains("\"type\":\"done\"") == true)
+    }
+
+    @Test func warningIsNotTerminalAndPrecedesDone() throws {
+        let emitter = EventEmitter()
+
+        let lines = Self.capturingStdout {
+            emitter.emit(.ready(durationSec: 10))
+            emitter.emit(.warning(code: "diarizationFailed", message: "simulated model download failure"))
+            emitter.emit(.done(durationSec: 10))
+        }
+
+        #expect(lines.count == 3)
+        #expect(lines[1].contains("\"type\":\"warning\""))
+        #expect(lines[1].contains("\"code\":\"diarizationFailed\""))
+        #expect(lines.last?.contains("\"type\":\"done\"") == true)
+    }
 }
