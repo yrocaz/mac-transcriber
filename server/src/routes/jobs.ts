@@ -6,6 +6,7 @@ import { newJobId } from "../idgen";
 import type { JobQueue } from "../queue";
 import type { JobStore } from "../jobStore";
 import { CreateJobBody, SUPPORTED_EXTENSIONS, toJobResponse } from "../types";
+import { assembleTranscript, renderSrt } from "../transcript";
 
 const SUPPORTED_EXTENSIONS_LIST = SUPPORTED_EXTENSIONS.join(", ");
 
@@ -70,5 +71,32 @@ export function registerJobRoutes(app: FastifyInstance, deps: JobRoutesDeps): vo
       return reply.code(404).send({ error: `Job not found: ${request.params.id}` });
     }
     return reply.send(toJobResponse(job));
+  });
+
+  app.get<{ Params: { id: string } }>("/jobs/:id/transcript.json", async (request, reply) => {
+    const job = store.getJob(request.params.id);
+    if (!job) {
+      return reply.code(404).send({ error: `Job not found: ${request.params.id}` });
+    }
+    if (job.status !== "done") {
+      return reply.code(404).send({ error: `Job is not done: ${request.params.id}` });
+    }
+
+    const transcript = assembleTranscript(job);
+    return reply.send(transcript);
+  });
+
+  app.get<{ Params: { id: string } }>("/jobs/:id/transcript.srt", async (request, reply) => {
+    const job = store.getJob(request.params.id);
+    if (!job) {
+      return reply.code(404).send({ error: `Job not found: ${request.params.id}` });
+    }
+    if (job.status !== "done") {
+      return reply.code(404).send({ error: `Job is not done: ${request.params.id}` });
+    }
+
+    const transcript = assembleTranscript(job);
+    const srt = renderSrt(transcript.segments);
+    return reply.type("text/plain; charset=utf-8").send(srt + "\n");
   });
 }

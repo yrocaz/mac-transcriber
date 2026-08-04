@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildTestApp, FAST_TIMEOUTS, fixtureMediaPath, waitFor } from "../helpers/testApp";
 
@@ -155,5 +157,192 @@ describe("FIFO queue, concurrency 1", () => {
     const badId = bad.json().id as string;
     await waitFor(() => store.getJob(badId)?.status === "error", { timeoutMs: 2000 });
     expect(store.getJob(badId)?.error?.code).toBe("spawnFailed");
+  });
+});
+
+describe("GET /jobs/:id/transcript.json", () => {
+  it("404s for an unknown job id", async () => {
+    const { app } = buildTestApp();
+    const res = await app.inject({ method: "GET", url: "/jobs/does-not-exist/transcript.json" });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("404s when job is not done (e.g., error status with segments present)", async () => {
+    const { app, store } = buildTestApp();
+    const jobId = "error-job";
+    store.createJob({ id: jobId, path: "/path/to/media.wav", locale: "en-US", diarize: false });
+    store.updateJob(jobId, {
+      status: "error",
+      error: { code: "testError", message: "test error" },
+      finishedAt: new Date().toISOString(),
+      segments: [{ start: 0, end: 1, text: "Test" }],
+    });
+
+    const res = await app.inject({ method: "GET", url: `/jobs/${jobId}/transcript.json` });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("returns transcript JSON for a done job", async () => {
+    const { app, store } = buildTestApp();
+    const create = await app.inject({
+      method: "POST",
+      url: "/jobs",
+      payload: { path: fixtureMediaPath("basic.wav"), locale: "en-US", diarize: true },
+    });
+    const jobId = create.json().id as string;
+
+    await waitFor(() => store.getJob(jobId)?.status === "done", { timeoutMs: 5000 });
+
+    const res = await app.inject({ method: "GET", url: `/jobs/${jobId}/transcript.json` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.metadata).toBeDefined();
+    expect(body.metadata.source).toBe(fixtureMediaPath("basic.wav"));
+    expect(body.metadata.engine).toBe("apple-speechanalyzer");
+    expect(body.metadata.diarization).toBe("ok");
+    expect(body.metadata.speakerCount).toBe(2);
+    expect(body.text).toMatch(/hello|kenobi/i);
+    expect(Array.isArray(body.segments)).toBe(true);
+    expect(body.segments.length).toBeGreaterThan(0);
+  });
+
+  it("is consistent with the written transcript.json file", async () => {
+    const { app, store, dataDir } = buildTestApp();
+    const create = await app.inject({
+      method: "POST",
+      url: "/jobs",
+      payload: { path: fixtureMediaPath("basic.wav"), locale: "en-US", diarize: true },
+    });
+    const jobId = create.json().id as string;
+
+    await waitFor(() => store.getJob(jobId)?.status === "done", { timeoutMs: 5000 });
+
+    // Get via route
+    const routeRes = await app.inject({ method: "GET", url: `/jobs/${jobId}/transcript.json` });
+    const routeBody = routeRes.json();
+
+    // Read from disk
+    const diskPath = path.join(dataDir, "jobs", jobId, "transcript.json");
+    const diskBody = JSON.parse(fs.readFileSync(diskPath, "utf8"));
+
+    // Both should be identical
+    expect(routeBody).toEqual(diskBody);
+  });
+});
+
+describe("GET /jobs/:id/transcript.srt", () => {
+  it("404s for an unknown job id", async () => {
+    const { app } = buildTestApp();
+    const res = await app.inject({ method: "GET", url: "/jobs/does-not-exist/transcript.srt" });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("404s when job is not done", async () => {
+    const { app, store } = buildTestApp();
+    const jobId = "error-job";
+    store.createJob({ id: jobId, path: "/path/to/media.wav", locale: "en-US", diarize: false });
+    store.updateJob(jobId, {
+      status: "error",
+      error: { code: "testError", message: "test error" },
+      finishedAt: new Date().toISOString(),
+      segments: [{ start: 0, end: 1, text: "Test" }],
+    });
+
+    const res = await app.inject({ method: "GET", url: `/jobs/${jobId}/transcript.srt` });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("returns SRT subtitle format with proper timing", async () => {
+    const { app, store } = buildTestApp();
+    const create = await app.inject({
+      method: "POST",
+      url: "/jobs",
+      payload: { path: fixtureMediaPath("basic.wav"), locale: "en-US", diarize: true },
+    });
+    const jobId = create.json().id as string;
+
+    await waitFor(() => store.getJob(jobId)?.status === "done", { timeoutMs: 5000 });
+
+    const res = await app.inject({ method: "GET", url: `/jobs/${jobId}/transcript.srt` });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/plain/);
+    const srt = res.payload;
+    // Basic sanity checks on SRT format
+    expect(srt).toMatch(/\d+/); // line numbers
+    expect(srt).toMatch(/00:\d{2}:\d{2},\d{3} --> 00:\d{2}:\d{2},\d{3}/); // timestamps
+    expect(srt.endsWith("\n")).toBe(true); // trailing newline
+  });
+
+  it("writes transcript.srt to disk and is consistent with route response", async () => {
+    const { app, store, dataDir } = buildTestApp();
+    const create = await app.inject({
+      method: "POST",
+      url: "/jobs",
+      payload: { path: fixtureMediaPath("basic.wav"), locale: "en-US", diarize: true },
+    });
+    const jobId = create.json().id as string;
+
+    await waitFor(() => store.getJob(jobId)?.status === "done", { timeoutMs: 5000 });
+
+    // Get via route
+    const routeRes = await app.inject({ method: "GET", url: `/jobs/${jobId}/transcript.srt` });
+    const routeBody = routeRes.payload;
+
+    // Read from disk
+    const diskPath = path.join(dataDir, "jobs", jobId, "transcript.srt");
+    const diskBody = fs.readFileSync(diskPath, "utf8");
+
+    // Both should be identical
+    expect(routeBody).toBe(diskBody);
+  });
+});
+
+describe("Transcript files on disk after job completion", () => {
+  it("writes both transcript.json and transcript.srt to the job directory", async () => {
+    const { app, store, dataDir } = buildTestApp();
+    const create = await app.inject({
+      method: "POST",
+      url: "/jobs",
+      payload: { path: fixtureMediaPath("basic.wav"), locale: "en-US", diarize: true },
+    });
+    const jobId = create.json().id as string;
+
+    await waitFor(() => store.getJob(jobId)?.status === "done", { timeoutMs: 5000 });
+
+    const jobDir = path.join(dataDir, "jobs", jobId);
+    const jsonPath = path.join(jobDir, "transcript.json");
+    const srtPath = path.join(jobDir, "transcript.srt");
+
+    expect(fs.existsSync(jsonPath)).toBe(true);
+    expect(fs.existsSync(srtPath)).toBe(true);
+
+    // Both should be valid and non-empty
+    const json = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
+    const srt = fs.readFileSync(srtPath, "utf8");
+    expect(json.metadata).toBeDefined();
+    expect(srt.length).toBeGreaterThan(0);
+  });
+});
+
+describe("GET /health", () => {
+  it("returns 200 with ok status when helper is present and working", async () => {
+    const { app } = buildTestApp();
+    const res = await app.inject({ method: "GET", url: "/health" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.status).toBe("ok");
+    expect(body.helper).toBeDefined();
+    expect(typeof body.helper.available).toBe("boolean");
+    expect(Array.isArray(body.helper.supportedLocales)).toBe(true);
+    expect(Array.isArray(body.helper.installedLocales)).toBe(true);
+  });
+
+  it("returns 200 with degraded status when helper binary is missing", async () => {
+    const { app } = buildTestApp({ helperPath: "/definitely/does/not/exist/speech-helper" });
+    const res = await app.inject({ method: "GET", url: "/health" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.status).toBe("degraded");
+    expect(body.helper).toBeNull();
   });
 });

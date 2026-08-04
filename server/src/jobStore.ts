@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { JobRecord } from "./types";
 import { JobRecord as JobRecordSchema } from "./types";
+import { assembleTranscript, renderSrt } from "./transcript";
 
 const INTERRUPTED_MESSAGE = "Server restarted while the job was in progress.";
 
@@ -114,5 +115,34 @@ export class JobStore {
     const tmpPath = path.join(dir, `.job.json.${process.pid}.tmp`);
     fs.writeFileSync(tmpPath, JSON.stringify(job, null, 2));
     fs.renameSync(tmpPath, finalPath);
+  }
+
+  /**
+   * Assembles transcript.json and transcript.srt and writes them to the job
+   * directory alongside job.json. Should only be called for done jobs
+   * with segments present. Errors are silently ignored (logged by caller if
+   * desired) — a write failure should not crash the job queue.
+   */
+  writeTranscripts(job: JobRecord): void {
+    try {
+      const transcript = assembleTranscript(job);
+      const dir = path.join(this.jobsDir, job.id);
+      fs.mkdirSync(dir, { recursive: true });
+
+      // Write transcript.json.
+      const jsonPath = path.join(dir, "transcript.json");
+      const jsonTmpPath = path.join(dir, `.transcript.json.${process.pid}.tmp`);
+      fs.writeFileSync(jsonTmpPath, JSON.stringify(transcript, null, 2));
+      fs.renameSync(jsonTmpPath, jsonPath);
+
+      // Write transcript.srt.
+      const srt = renderSrt(transcript.segments);
+      const srtPath = path.join(dir, "transcript.srt");
+      const srtTmpPath = path.join(dir, `.transcript.srt.${process.pid}.tmp`);
+      fs.writeFileSync(srtTmpPath, srt + "\n");
+      fs.renameSync(srtTmpPath, srtPath);
+    } catch {
+      // Silently ignore write failures; queue worker can log if desired.
+    }
   }
 }
