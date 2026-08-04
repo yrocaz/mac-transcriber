@@ -104,7 +104,7 @@ export function assembleTranscript(job: JobRecord): Transcript {
   const diarizationStatus = deriveDiarizationStatus(job);
 
   // Build segments with max-overlap speaker merge (if diarization succeeded).
-  const segments: TranscriptSegment[] = job.segments.map((seg, idx) => {
+  let segments: TranscriptSegment[] = job.segments.map((seg, idx) => {
     let speaker: string | null = null;
 
     if (diarizationStatus === "ok" && job.speakers) {
@@ -112,7 +112,7 @@ export function assembleTranscript(job: JobRecord): Transcript {
     }
 
     return {
-      id: idx,
+      id: idx, // temporary, will be reassigned after filtering
       start: roundMs(seg.start),
       end: roundMs(seg.end),
       text: seg.text.trim(),
@@ -120,8 +120,10 @@ export function assembleTranscript(job: JobRecord): Transcript {
     };
   });
 
-  // Drop empty segments and join as flat prose.
-  const nonEmptySegments = segments.filter((s) => s.text.length > 0);
+  // Drop empty segments and reassign sequential ids after filtering.
+  const nonEmptySegments = segments
+    .filter((s) => s.text.length > 0)
+    .map((seg, idx) => ({ ...seg, id: idx }));
   const text = nonEmptySegments.map((s) => s.text).join(" ");
 
   // Metadata.

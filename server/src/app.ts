@@ -33,14 +33,6 @@ export function buildApp(config: AppConfig): BuiltApp {
     const job = store.getJob(id);
     if (!job) return;
     await supervisor.run(job, store);
-
-    // After the job run completes, if it's done, write transcript files.
-    // The supervisor's CORE INVARIANT guarantees that if run() has resolved,
-    // the job record is finalized to a terminal state.
-    const finalized = store.getJob(id);
-    if (finalized?.status === "done") {
-      store.writeTranscripts(finalized);
-    }
   });
 
   const app = Fastify({ logger: false });

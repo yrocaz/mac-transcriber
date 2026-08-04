@@ -198,6 +198,15 @@ export class HelperSupervisor {
         if (finalized) return;
         finalized = true;
         clearTimers();
+
+        // Write transcript files BEFORE marking job done (spec §5 ordering).
+        // This ensures a job with status="done" always has its transcript files.
+        // Any write errors are logged but don't prevent job completion.
+        const currentJob = store.getJob(job.id);
+        if (currentJob) {
+          store.writeTranscripts(currentJob);
+        }
+
         store.updateJob(job.id, {
           status: "done",
           progress: 1,

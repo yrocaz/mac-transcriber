@@ -256,6 +256,68 @@ describe("assembleTranscript", () => {
       expect(transcript.segments[1].id).toBe(1);
       expect(transcript.segments[2].id).toBe(2);
     });
+
+    it("reassigns contiguous ids after filtering empty segments", () => {
+      const job = makeJobRecord({
+        segments: [
+          { start: 0, end: 1, text: "First" },
+          { start: 1, end: 2, text: "" }, // empty, will be filtered
+          { start: 2, end: 3, text: "Third" },
+          { start: 3, end: 4, text: "   " }, // whitespace-only, trims to empty
+          { start: 4, end: 5, text: "Fifth" },
+        ],
+      });
+      const transcript = assembleTranscript(job);
+      // Only non-empty segments: First (id 0), Third (id 1), Fifth (id 2)
+      expect(transcript.segments.length).toBe(3);
+      expect(transcript.segments[0].id).toBe(0);
+      expect(transcript.segments[0].text).toBe("First");
+      expect(transcript.segments[1].id).toBe(1);
+      expect(transcript.segments[1].text).toBe("Third");
+      expect(transcript.segments[2].id).toBe(2);
+      expect(transcript.segments[2].text).toBe("Fifth");
+    });
+  });
+
+  describe("speaker merge: maximum overlap selection", () => {
+    it("assigns speaker with strictly greater overlap (not just tied)", () => {
+      const job = makeJobRecord({
+        segments: [
+          { start: 0, end: 10, text: "Long segment spans both speakers" },
+        ],
+        speakers: {
+          segments: [
+            { start: 0, end: 3, speaker: "S1" }, // 3s overlap (0-3)
+            { start: 2, end: 10, speaker: "S2" }, // 8s overlap (2-10)
+          ],
+          count: 2,
+        },
+      });
+      const transcript = assembleTranscript(job);
+      // S2 wins because 8 > 3 (not because it comes later; max is the tiebreaker).
+      expect(transcript.segments[0].speaker).toBe("S2");
+    });
+
+    it('assigns speaker: null for all segments when diarization is "ok" with zero turns', () => {
+      const job = makeJobRecord({
+        diarize: true,
+        speakers: {
+          segments: [],
+          count: 0,
+        },
+        segments: [
+          { start: 0, end: 1, text: "Segment one" },
+          { start: 1, end: 2, text: "Segment two" },
+        ],
+      });
+      const transcript = assembleTranscript(job);
+      // Diarization succeeded (ok) but found zero speakers.
+      expect(transcript.metadata.diarization).toBe("ok");
+      expect(transcript.metadata.speakerCount).toBe(0);
+      // No turns to merge, so all speakers are null.
+      expect(transcript.segments[0].speaker).toBeNull();
+      expect(transcript.segments[1].speaker).toBeNull();
+    });
   });
 });
 

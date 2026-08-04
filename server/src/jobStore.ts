@@ -120,8 +120,7 @@ export class JobStore {
   /**
    * Assembles transcript.json and transcript.srt and writes them to the job
    * directory alongside job.json. Should only be called for done jobs
-   * with segments present. Errors are silently ignored (logged by caller if
-   * desired) — a write failure should not crash the job queue.
+   * with segments present. Errors are logged but do not crash the queue.
    */
   writeTranscripts(job: JobRecord): void {
     try {
@@ -141,8 +140,9 @@ export class JobStore {
       const srtTmpPath = path.join(dir, `.transcript.srt.${process.pid}.tmp`);
       fs.writeFileSync(srtTmpPath, srt + "\n");
       fs.renameSync(srtTmpPath, srtPath);
-    } catch {
-      // Silently ignore write failures; queue worker can log if desired.
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(`Failed to write transcripts for job ${job.id}:`, err);
     }
   }
 }

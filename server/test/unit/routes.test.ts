@@ -322,6 +322,31 @@ describe("Transcript files on disk after job completion", () => {
     expect(json.metadata).toBeDefined();
     expect(srt.length).toBeGreaterThan(0);
   });
+
+  it("spec §5 invariant: done job ALWAYS has its transcript files (completion ordering)", async () => {
+    // Verify the core invariant: if status === "done", transcript files exist.
+    // This ensures no orphaned done jobs with missing transcripts.
+    const { app, store, dataDir } = buildTestApp();
+    const create = await app.inject({
+      method: "POST",
+      url: "/jobs",
+      payload: { path: fixtureMediaPath("basic.wav"), locale: "en-US", diarize: true },
+    });
+    const jobId = create.json().id as string;
+
+    await waitFor(() => store.getJob(jobId)?.status === "done", { timeoutMs: 5000 });
+
+    const job = store.getJob(jobId);
+    expect(job?.status).toBe("done");
+
+    const jobDir = path.join(dataDir, "jobs", jobId);
+    const jsonPath = path.join(jobDir, "transcript.json");
+    const srtPath = path.join(jobDir, "transcript.srt");
+
+    // The invariant: done job => both files exist.
+    expect(fs.existsSync(jsonPath)).toBe(true);
+    expect(fs.existsSync(srtPath)).toBe(true);
+  });
 });
 
 describe("GET /health", () => {
