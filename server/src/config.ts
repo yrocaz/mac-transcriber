@@ -6,7 +6,18 @@ import path from "node:path";
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 
 export interface TimeoutConfig {
-  /** Spec §6: 60s from spawn to the `ready` event. */
+  /**
+   * Spec §6: 180s from spawn to the `ready` event. Startup covers file-open
+   * AND the MP3 tail-probe/repair path (AudioPreparer.swift): a malformed
+   * MP3's `AVAssetExportSession` re-export was measured at ~90s in Task 5's
+   * verification environment (see the Task 5 report and README for the
+   * measurement — it was environment-dependent but a larger budget is
+   * harmless either way). Originally 60s, raised because the repair path
+   * the timeout exists to accommodate was otherwise dead on arrival: it
+   * would always be killed as a startup timeout before finishing. The
+   * timeout's job — catching a genuinely hung or missing helper — still
+   * holds at 180s.
+   */
   startupTimeoutMs: number;
   /** Spec §6: 120s with no NDJSON event of any type. */
   inactivityTimeoutMs: number;
@@ -18,7 +29,7 @@ export interface TimeoutConfig {
 }
 
 export const DEFAULT_TIMEOUTS: TimeoutConfig = {
-  startupTimeoutMs: 60_000,
+  startupTimeoutMs: 180_000,
   inactivityTimeoutMs: 120_000,
   totalRuntimeMultiplier: 2,
   totalRuntimeFloorMs: 10 * 60 * 1000,

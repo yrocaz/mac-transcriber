@@ -362,34 +362,34 @@ needs it skips with a clear message (naming the script) if it's absent.
   timeout you set around a first run — the E2E suite's warm-up step exists
   specifically for this.
 - **`AVAssetExportSession` has a fixed ~90-second overhead in this
-  environment, unrelated to file size or format.** While building the
-  malformed-MP3 E2E case, `AudioPreparer.repair()`'s
-  `AVAssetExportSession(presetName: .appleM4A)` call was measured taking
-  **~90 seconds** to re-export a 32.7-second MP3 — reproducibly, and for a
-  *well-formed* MP3 too (isolated with a standalone Swift script calling
-  only `AVAssetExportSession`, outside the helper entirely; not an artifact
-  of the fabricated test fixture). To narrow down whether this was an
-  MP3-decode cost or something broader, the same isolated script was run
-  against a completely different input — the 6.6-second `speech-short.aiff`
-  fixture (AIFF, not MP3) — and it *also* took ~90 seconds. A 6.6s AIFF and
-  a 32.7s MP3 costing the same ~90s to export rules out "proportional to
-  audio length" or "MP3-decode-specific" and points at a fixed, per-call
-  overhead in `AVAssetExportSession` itself on this machine — plausibly a
-  hardware media-encode session negotiation timeout falling back to
-  software in a sandboxed/virtualized environment, though this is a
-  hypothesis, not confirmed. This comfortably exceeds the design spec's §6
-  60-second startup timeout ("covers file-open and MP3 repair"): a real
-  malformed MP3 routed through the server's default timeouts would be
-  killed as a startup timeout before repair finishes, even though the
-  repair itself is correct. The E2E test for this case uses an extended,
-  test-only `startupTimeoutMs` to demonstrate the repair path works; the
-  discrepancy between the spec's 60s budget and this machine's actual
-  `AVAssetExportSession` performance is flagged here rather than silently
-  patched (neither `helper/Sources` nor `server/src` were touched for
-  this). Worth re-measuring on non-sandboxed hardware — if `speech-short.aiff`
-  exports in ~2s there, this is confirmed environment-specific and only
-  the MP3-repair path (which is rare) is at risk; if it's still ~90s,
-  every export-based codepath needs a timeout review.
+  environment, unrelated to file size or format — the startup timeout was
+  raised from 60s to 180s (spec §6, `server/src/config.ts`) to
+  accommodate it.** While building the malformed-MP3 E2E case,
+  `AudioPreparer.repair()`'s `AVAssetExportSession(presetName: .appleM4A)`
+  call was measured taking **~90 seconds** to re-export a 32.7-second MP3 —
+  reproducibly, and for a *well-formed* MP3 too (isolated with a standalone
+  Swift script calling only `AVAssetExportSession`, outside the helper
+  entirely; not an artifact of the fabricated test fixture). To narrow down
+  whether this was an MP3-decode cost or something broader, the same
+  isolated script was run against a completely different input — the
+  6.6-second `speech-short.aiff` fixture (AIFF, not MP3) — and it *also*
+  took ~90 seconds. A 6.6s AIFF and a 32.7s MP3 costing the same ~90s to
+  export rules out "proportional to audio length" or "MP3-decode-specific"
+  and points at a fixed, per-call overhead in `AVAssetExportSession` itself
+  on this machine — plausibly a hardware media-encode session negotiation
+  timeout falling back to software in a sandboxed/virtualized environment,
+  though this is a hypothesis, not confirmed. This exceeded the original
+  60-second startup timeout, which meant the MP3-repair path the timeout
+  is meant to accommodate would always be killed before finishing — dead on
+  arrival for the exact case it exists to handle. Fixed by raising
+  `DEFAULT_TIMEOUTS.startupTimeoutMs` to 180s (comfortable margin over the
+  ~90s measurement, while still catching a genuinely hung/missing helper);
+  see `server/src/config.ts` for the rationale comment and
+  `server/test/unit/config.test.ts` for a pinning test. The measurement
+  itself is environment-dependent and worth re-confirming on non-sandboxed
+  hardware — if `speech-short.aiff` exports in ~2s there, this was
+  specific to this sandboxed environment — but the larger timeout budget
+  is harmless regardless of where the ~90s came from.
 
 ## Out of scope (v1)
 

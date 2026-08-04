@@ -221,34 +221,28 @@ describe.skipIf(!HELPER_AVAILABLE)("E2E: real speech-helper (macOS only)", () =>
     expect(body.helper.installedLocales).toContain("en-US");
   });
 
-  // NOT using the shared `built` app for this one: discovered while writing
-  // this suite that AVAssetExportSession(presetName: .appleM4A) — the exact
-  // call AudioPreparer.repair() makes — takes ~90s to re-export this ~32.7s
-  // MP3 on this machine, reproducibly, for a WELL-FORMED MP3 too (isolated
-  // with a standalone Swift script calling only AVAssetExportSession,
-  // outside the helper entirely). That's not specific to this fixture's
-  // fabricated header; it's however long AVFoundation's M4A export takes on
-  // this hardware/OS for this MP3 encoding. It comfortably exceeds spec
-  // §6's 60s startup timeout (which is meant to cover "file-open and MP3
-  // repair"), so against DEFAULT_TIMEOUTS this job is killed as a startup
-  // timeout before the helper's `ready` event — even though the repair
-  // itself completes correctly. See the Task 5 report for the full
-  // writeup; this is flagged as a real finding, not fixed here (server/src
-  // and helper/Sources are out of scope for this task). The extended
-  // startupTimeoutMs below is a test-only accommodation so this case can
-  // still prove the repair path produces a correct transcript.
+  // Uses the shared `built` app (production DEFAULT_TIMEOUTS) — this now
+  // deliberately proves the production startup-timeout budget survives a
+  // real repair, not just a test-only accommodation. History: discovered
+  // while writing this suite that AVAssetExportSession(presetName:
+  // .appleM4A) — the exact call AudioPreparer.repair() makes — takes ~90s
+  // to re-export this ~32.7s MP3 on this machine, reproducibly, for a
+  // WELL-FORMED MP3 too (isolated with a standalone Swift script calling
+  // only AVAssetExportSession, outside the helper entirely) and even for a
+  // 6.6s AIFF (not an MP3 at all) — ruling out "proportional to audio
+  // length" or "MP3-decode-specific" and pointing at a fixed per-call
+  // AVAssetExportSession overhead in this environment. That exceeded the
+  // original 60s startup timeout (spec §6, "covers file-open and MP3
+  // repair"), so the repair path was killed as a startup timeout before
+  // `ready` — dead on arrival for the exact case it exists to handle.
+  // Controller-authorized fix (config.ts, DEFAULT_TIMEOUTS.startupTimeoutMs
+  // 60s -> 180s): comfortable margin over the ~90s measurement while still
+  // catching a genuinely hung/missing helper. See the Task 5 report for
+  // the full writeup and measurements.
   it.skipIf(!MALFORMED_MP3_AVAILABLE)(
     "malformed MP3 fixture: the tail-probe/repair path produces a correct transcript",
     async () => {
-      const mp3TestApp = buildApp({
-        dataDir: makeTempDataDir(),
-        helperPath: HELPER_PATH,
-        host: "127.0.0.1",
-        port: 0,
-        timeouts: { ...DEFAULT_TIMEOUTS, startupTimeoutMs: 4 * 60_000 },
-      });
-
-      const create = await mp3TestApp.app.inject({
+      const create = await built.app.inject({
         method: "POST",
         url: "/jobs",
         payload: { path: MALFORMED_MP3_PATH, diarize: false },
@@ -258,13 +252,13 @@ describe.skipIf(!HELPER_AVAILABLE)("E2E: real speech-helper (macOS only)", () =>
 
       await waitFor(
         () => {
-          const status = mp3TestApp.store.getJob(id)?.status;
+          const status = built.store.getJob(id)?.status;
           return status === "done" || status === "error";
         },
         { timeoutMs: 6 * 60_000, intervalMs: 500 },
       );
 
-      const jobRes = await mp3TestApp.app.inject({ method: "GET", url: `/jobs/${id}` });
+      const jobRes = await built.app.inject({ method: "GET", url: `/jobs/${id}` });
       const job = JSON.parse(jobRes.payload);
       expect(job.status).toBe("done");
       expect(job.error).toBeNull();
@@ -277,7 +271,7 @@ describe.skipIf(!HELPER_AVAILABLE)("E2E: real speech-helper (macOS only)", () =>
       expect(job.durationSec).toBeGreaterThan(10);
       expect(job.durationSec).toBeLessThan(60);
 
-      const res = await mp3TestApp.app.inject({ method: "GET", url: `/jobs/${id}/transcript.json` });
+      const res = await built.app.inject({ method: "GET", url: `/jobs/${id}/transcript.json` });
       expect(res.statusCode).toBe(200);
       const transcript = JSON.parse(res.payload);
       expect(transcript.segments.length).toBeGreaterThan(0);

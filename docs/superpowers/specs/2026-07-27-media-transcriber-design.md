@@ -122,7 +122,7 @@ Assembled from proven sources, not designed from scratch:
 - Helper maps [`SFSpeechError.Code`](https://developer.apple.com/documentation/speech/sfspeecherror/code) to friendly codes/messages: `noModel`, `cannotAllocateUnsupportedLocale`, `insufficientResources`, `audioReadFailed`, etc.
 - No-audio-track or unsupported container (mkv/webm) fails fast at `AVAudioFile` open with a clear message. ffmpeg fallback = documented future option, not built now.
 - Helper supervision uses three distinct timeouts, all resulting in kill + job error with stderr captured:
-  - **Startup:** 60s from spawn to the `ready` event (covers file-open and MP3 repair).
+  - **Startup:** 180s from spawn to the `ready` event (covers file-open and MP3 repair — the `AVAssetExportSession` re-export a malformed MP3 triggers was measured taking up to ~90s in verification; raised from an initial 60s once Task 5's E2E testing showed that budget killed the repair path it was meant to accommodate).
   - **Inactivity:** 120s with no NDJSON event of any type (model downloads stay alive via their `model_download` progress events).
   - **Total runtime:** `max(2 × durationSec, 10 min)`, armed once `ready` supplies `durationSec`.
 - **Overall job progress** is a monotonic mapping of stage progress: with diarization enabled, `transcribe` maps to 0–0.9 and `diarize` to 0.9–1.0; with `diarize: false`, `transcribe` maps to 0–1.0. The server clamps updates so reported progress never decreases.
