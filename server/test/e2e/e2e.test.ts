@@ -55,13 +55,31 @@ function ensureHelperBuilt(): boolean {
 
 const HELPER_AVAILABLE = ensureHelperBuilt();
 
+// The sidecar (written by scripts/make-fixtures.sh alongside the fixture)
+// carries the fixture's true (real, decodable) and declared (Xing-header
+// lie) durations in seconds. The test asserts against these instead of a
+// hardcoded magic number, so the assertion states the actual invariant
+// being checked and survives the script's frame-count math or the source
+// system MP3 changing on a future macOS.
+interface MalformedMp3Sidecar {
+  trueDurationSec: number;
+  declaredDurationSec: number;
+}
+
 const MALFORMED_MP3_PATH = fixture("malformed.mp3");
-const MALFORMED_MP3_AVAILABLE = fs.existsSync(MALFORMED_MP3_PATH);
+const MALFORMED_MP3_SIDECAR_PATH = fixture("malformed.mp3.json");
+const MALFORMED_MP3_AVAILABLE =
+  fs.existsSync(MALFORMED_MP3_PATH) && fs.existsSync(MALFORMED_MP3_SIDECAR_PATH);
+
+let malformedMp3Sidecar: MalformedMp3Sidecar | undefined;
 if (HELPER_AVAILABLE && !MALFORMED_MP3_AVAILABLE) {
   console.warn(
-    "[e2e] test-fixtures/malformed.mp3 not found; skipping the MP3 tail-probe/repair test. " +
-      "Run `scripts/make-fixtures.sh` to generate it (requires the source system MP3 to be present on this Mac).",
+    "[e2e] test-fixtures/malformed.mp3 (and/or its .json sidecar) not found; skipping the MP3 " +
+      "tail-probe/repair test. Run `scripts/make-fixtures.sh` to generate both " +
+      "(requires the source system MP3 to be present on this Mac).",
   );
+} else if (MALFORMED_MP3_AVAILABLE) {
+  malformedMp3Sidecar = JSON.parse(fs.readFileSync(MALFORMED_MP3_SIDECAR_PATH, "utf8")) as MalformedMp3Sidecar;
 }
 
 describe.skipIf(!HELPER_AVAILABLE)("E2E: real speech-helper (macOS only)", () => {
@@ -263,13 +281,19 @@ describe.skipIf(!HELPER_AVAILABLE)("E2E: real speech-helper (macOS only)", () =>
       expect(job.status).toBe("done");
       expect(job.error).toBeNull();
 
-      // The fixture's Xing header lies that the file is ~131s long (4x the
-      // real ~32.7s). If AudioPreparer's tail-probe/repair path hadn't
-      // kicked in, this job would either error out on the inflated tail
-      // read or report a duration close to the lie. A correct duration
-      // well below it is exactly what a successful repair produces.
-      expect(job.durationSec).toBeGreaterThan(10);
-      expect(job.durationSec).toBeLessThan(60);
+      // Assert against the sidecar's actual true/declared durations rather
+      // than a hardcoded number: the fixture's Xing header lies that the
+      // file is `declaredDurationSec` long. If AudioPreparer's tail-probe/
+      // repair path hadn't kicked in, this job would either error out on
+      // the inflated tail read or report a duration close to that lie. A
+      // duration close to `trueDurationSec` (and far below the declared
+      // one) is exactly what a successful repair produces — this is the
+      // actual invariant, stated explicitly, and it survives the fixture
+      // being regenerated with different frame counts.
+      const sidecar = malformedMp3Sidecar!; // non-null: this test is skipIf(!MALFORMED_MP3_AVAILABLE)
+      expect(job.durationSec).toBeGreaterThan(sidecar.trueDurationSec - 2);
+      expect(job.durationSec).toBeLessThan(sidecar.trueDurationSec + 2);
+      expect(job.durationSec).toBeLessThan(sidecar.declaredDurationSec / 2);
 
       const res = await built.app.inject({ method: "GET", url: `/jobs/${id}/transcript.json` });
       expect(res.statusCode).toBe(200);

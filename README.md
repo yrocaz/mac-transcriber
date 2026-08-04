@@ -265,12 +265,13 @@ npm run test:e2e  # E2E suite: real speech-helper, real media, macOS only
 ```
 $ npm test
  ✓ test/unit/progress.test.ts (6 tests)
+ ✓ test/unit/config.test.ts (3 tests)
  ✓ test/unit/transcript.test.ts (25 tests)
  ✓ test/unit/jobStore.test.ts (6 tests)
  ✓ test/unit/routes.test.ts (23 tests)
  ✓ test/unit/supervisor.test.ts (12 tests)
- Test Files  5 passed (5)
-      Tests  72 passed (72)
+ Test Files  6 passed (6)
+      Tests  75 passed (75)
 ```
 
 `npm run test:e2e` builds `speech-helper` automatically if the release
@@ -304,6 +305,7 @@ $ npm run test:e2e
 | `two-voice-interview.wav` | `say`-generated, two alternating voices (Samantha/Daniel) | yes |
 | `sample-5s.mp4` | downloaded from [samplelib.com](https://samplelib.com/sample-mp4.html) (music, no speech — verifies container handling) | yes |
 | `malformed.mp3` | generated locally from a macOS system resource (see below) | **no** |
+| `malformed.mp3.json` | sidecar: the fixture's true/declared duration (see below) | **no** |
 
 `scripts/make-fixtures.sh` regenerates the `say`-based fixtures and the
 malformed MP3:
@@ -331,6 +333,17 @@ It's **not committed to git** — the output is ~99.9% byte-identical to
 Apple's shipped audio resource, which isn't ours to redistribute — so it
 only exists after running `scripts/make-fixtures.sh`, and the E2E case that
 needs it skips with a clear message (naming the script) if it's absent.
+
+The script also writes `malformed.mp3.json`, a small sidecar recording the
+fixture's true (real, decodable) and declared (Xing-header lie) durations
+in seconds — e.g. `{"trueDurationSec": 32.731, "declaredDurationSec":
+130.926, ...}`. The E2E test reads this rather than asserting against a
+hardcoded number, so the assertion states the actual invariant ("repair
+recovers a duration near the true value, far below the declared one") and
+keeps working if the script's frame-count math or the source system MP3
+changes on a future macOS. Both files are written atomically (temp path +
+`mv`) and regenerated together — the E2E case treats either one missing
+as "fixture not ready" and skips.
 
 ## Development notes
 

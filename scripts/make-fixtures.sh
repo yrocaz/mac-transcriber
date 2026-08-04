@@ -12,6 +12,10 @@
 #   - test-fixtures/speech-short.aiff     single-voice, ~2 sentences
 #   - test-fixtures/two-voice-interview.wav   6-turn interview, 2 alternating voices
 #   - test-fixtures/malformed.mp3         synthetic malformed-MP3 (see below) — best effort
+#   - test-fixtures/malformed.mp3.json    sidecar: the fixture's true vs. declared
+#                                          (lying) duration, so the E2E test can
+#                                          assert the actual invariant instead of
+#                                          a magic number — see make_malformed_mp3
 #
 # Note on determinism: `say`'s synthesis for a given voice/text/OS build is
 # stable, but SpeechAnalyzer's ASR of that audio can shift slightly across
@@ -158,10 +162,21 @@ PYEOF
 # to redistribute. This fixture only exists after running this script, and
 # the E2E case that depends on it skips loudly (not silently) when it's
 # absent, naming this script as the fix.
+#
+# Also writes a sidecar test-fixtures/malformed.mp3.json with the fixture's
+# true (real, decodable) and declared (the Xing header's lie) durations, in
+# seconds. The E2E test reads this instead of hardcoding a magic number —
+# it asserts the helper's reported durationSec lands near the TRUE value and
+# well below the DECLARED one, which is the actual invariant a successful
+# repair produces, and one that survives this script changing its frame-
+# count math or the source system MP3 changing on a future macOS.
 # ---------------------------------------------------------------------------
 make_malformed_mp3() {
   local src="/System/Library/PrivateFrameworks/PersonalAudio.framework/Versions/A/Resources/Enrollment_1.mp3"
   local out="${FIXTURES_DIR}/malformed.mp3"
+  local sidecar="${FIXTURES_DIR}/malformed.mp3.json"
+  local tmp_out="${TMP_DIR}/malformed.mp3"
+  local tmp_sidecar="${TMP_DIR}/malformed.mp3.json"
 
   if [[ ! -f "${src}" ]]; then
     log "WARNING: source system MP3 not found at:"
@@ -174,10 +189,11 @@ make_malformed_mp3() {
   fi
 
   log "Generating malformed.mp3 (source: ${src})..."
-  python3 - "${src}" "${out}" <<'PYEOF'
+  python3 - "${src}" "${tmp_out}" "${tmp_sidecar}" <<'PYEOF'
+import json
 import sys
 
-src_path, out_path = sys.argv[1], sys.argv[2]
+src_path, out_path, sidecar_path = sys.argv[1], sys.argv[2], sys.argv[3]
 
 with open(src_path, "rb") as f:
     data = f.read()
@@ -249,14 +265,50 @@ out_bytes = data[:audio_offset] + bytes(xing_frame) + data[audio_offset:]
 with open(out_path, "wb") as f:
     f.write(out_bytes)
 
+# samples_per_frame: Layer III carries 1152 samples/frame for MPEG1, 576 for
+# MPEG2/2.5. The synthetic Xing frame itself is not counted here — it's
+# standard for a decoder to recognize the Xing tag and treat that one frame
+# as metadata, not audible content (confirmed empirically: the real
+# helper's reported durationSec for this exact fixture matched
+# real_frames * samples_per_frame / samplerate, not (real_frames + 1) * ...).
+samples_per_frame = 1152 if is_mpeg1 else 576
+true_duration_sec = real_frames * samples_per_frame / samplerate
+declared_duration_sec = inflated_frames * samples_per_frame / samplerate
+
+with open(sidecar_path, "w") as f:
+    json.dump(
+        {
+            "trueDurationSec": round(true_duration_sec, 3),
+            "declaredDurationSec": round(declared_duration_sec, 3),
+            "realFrames": real_frames,
+            "declaredFrames": inflated_frames,
+            "note": (
+                "trueDurationSec is what a successful tail-probe/repair should "
+                "recover (job.durationSec should land close to this); "
+                "declaredDurationSec is the fixture's Xing-header lie "
+                "(job.durationSec should be far below this if repair worked)."
+            ),
+        },
+        f,
+        indent=2,
+    )
+
 print(
     f"wrote {out_path}: {len(out_bytes)} bytes "
     f"(real frames={real_frames}, declared frames={inflated_frames}, "
-    f"real ~{real_frames * (1152 if is_mpeg1 else 576) / samplerate:.1f}s, "
-    f"declared ~{inflated_frames * (1152 if is_mpeg1 else 576) / samplerate:.1f}s)"
+    f"real ~{true_duration_sec:.1f}s, declared ~{declared_duration_sec:.1f}s)"
 )
+print(f"wrote {sidecar_path}")
 PYEOF
+
+  # Atomic: both files are written to temp paths above, only mv'd into
+  # place once both succeeded — an interrupted run can't leave a truncated
+  # fixture or a mismatched/missing sidecar, matching the other two
+  # fixtures' temp-path-then-mv pattern.
+  mv "${tmp_out}" "${out}"
+  mv "${tmp_sidecar}" "${sidecar}"
   log "  -> ${out} ($(stat -f%z "${out}") bytes)"
+  log "  -> ${sidecar}"
 }
 
 make_speech_short
