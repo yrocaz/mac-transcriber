@@ -1,6 +1,6 @@
 # Design: media-transcriber
 
-Date: 2026-07-27 · Status: awaiting user approval
+Date: 2026-07-27 · Status: approved, implemented, and merged to `main` (2026-08-04) — see the [build record](../../2026-08-04-v1-build-record.md) for decisions, parked items, and disclosed gaps
 
 A local-first transcription service for macOS: give it a path to any local media file — video or audio — and get back a structured transcript powered by Apple's on-device SpeechAnalyzer. The transcripts are the foundation for a future "transcript → blog article/guide" step, which is out of scope for this build but shapes the output format.
 
