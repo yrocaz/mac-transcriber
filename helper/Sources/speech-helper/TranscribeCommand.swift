@@ -140,7 +140,34 @@ struct TranscribeCommand: AsyncParsableCommand {
             // produced above is delivered intact either way.
             if !noDiarize {
                 do {
+                    // KEEPALIVE (spec §6, Critical 1): unlike Apple's
+                    // AssetInventory path above (KVO-driven, reports its own
+                    // `model_download` progress), FluidAudio's diarization
+                    // model download + `prepareModels()` emits nothing on
+                    // stdout at all — that silent window can exceed the
+                    // server's 120s inactivity budget on a slow/first-run
+                    // connection and kill an otherwise-healthy job. Emit a
+                    // diarize-stage tick immediately, then keep ticking every
+                    // 20s (well under the 120s budget) until diarize's own
+                    // progress callback reports real activity. `pct: 0` is a
+                    // MonotonicProgress no-op (server/src/progress.ts) once
+                    // transcribe has already reached 1.0, so this never moves
+                    // overall progress. Scoped to this `do` block and stopped
+                    // via `defer` so the ticker provably cannot emit after
+                    // the terminal `done` below (spec's "exactly one terminal
+                    // event, always last" guarantee) — EventEmitter's own
+                    // post-terminal guard is a backstop, not relied on alone.
+                    EventEmitter.shared.emit(.progress(stage: "diarize", pct: 0))
+                    let keepAlive = KeepAliveTicker(intervalSec: 20) {
+                        EventEmitter.shared.emit(.progress(stage: "diarize", pct: 0))
+                    }
+                    keepAlive.start()
+                    defer { keepAlive.stop() }
+
                     let turns = try await SpeakerDiarizer.diarize(prepared.url) { chunksProcessed, totalChunks in
+                        // Real progress has started arriving: the silent
+                        // window is over, so stop ticking.
+                        keepAlive.stop()
                         let pct = totalChunks > 0 ? Double(chunksProcessed) / Double(totalChunks) : 1.0
                         EventEmitter.shared.emit(.progress(stage: "diarize", pct: roundedToMillisecond(min(max(pct, 0), 1))))
                     }

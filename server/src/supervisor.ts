@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import readline from "node:readline";
 import type { TimeoutConfig } from "./config";
 import { MonotonicProgress } from "./progress";
@@ -69,6 +69,25 @@ export class HelperSupervisor {
     return this.activeTimerCount;
   }
 
+  /**
+   * The in-flight helper child process, if any (concurrency 1, so at most
+   * one). Minor finding 7: `index.ts` has no SIGINT/SIGTERM handling, so
+   * Ctrl-C mid-job used to orphan the helper holding a SpeechAnalyzer
+   * session — a re-POST would then run two analyses concurrently, exactly
+   * what the concurrency-1 queue exists to prevent. Tracked here (not
+   * exposed more broadly) so `index.ts` can kill it on a clean shutdown.
+   */
+  private activeChild: ChildProcess | null = null;
+
+  /** Kills the in-flight helper process, if any. Safe to call when idle. */
+  killActive(signal: NodeJS.Signals = "SIGTERM"): void {
+    try {
+      this.activeChild?.kill(signal);
+    } catch {
+      // already dead
+    }
+  }
+
   run(job: JobRecord, store: JobStore): Promise<void> {
     return new Promise((resolve) => {
       const { helperPath, timeouts } = this.config;
@@ -87,6 +106,7 @@ export class HelperSupervisor {
       });
 
       const child = spawn(helperPath, args, { stdio: ["ignore", "pipe", "pipe"] });
+      this.activeChild = child;
 
       const progress = new MonotonicProgress(job.diarize);
       let finalized = false;
@@ -161,6 +181,12 @@ export class HelperSupervisor {
         killTimer = clearTimer(killTimer);
         if (resolved) return;
         resolved = true;
+        // This run has settled; stop tracking the (now-dead-or-dying) child
+        // so a later killActive() call (e.g. during shutdown, racing the
+        // queue's move to the next job) can't act on a stale reference.
+        if (this.activeChild === child) {
+          this.activeChild = null;
+        }
         resolve();
       };
 
@@ -176,10 +202,35 @@ export class HelperSupervisor {
         if (exited) resolveOnce();
       };
 
+      // Critical 1b (spec §6 review finding): a post-transcription failure
+      // (e.g. the inactivity timeout firing during FluidAudio's silent
+      // model-download window) must not throw away a complete, correct
+      // `segments[]` that transcription already produced — otherwise the
+      // job errors, GET /jobs/:id/transcript.json 404s (job.status !==
+      // "done", by design — see routes.test.ts's "404s when job is not
+      // done, e.g. error status with segments present"), and the finished
+      // work is only reachable by hand-parsing job.json. This writes the
+      // transcript files to disk (best-effort; writeTranscripts already
+      // logs its own errors) so the material survives even though the API
+      // still reports the job as errored. Deliberately duplicated at each
+      // of the three error-finalize call sites below rather than factored
+      // into one shared "finalize" — see the class docblock: the timer/kill
+      // ordering across finalizeError/finalizeHelperError/
+      // finalizeUnexpectedExit was hardened across two prior review rounds
+      // and finalizeUnexpectedExit deliberately does NOT call
+      // armKillGraceAndWait(); unifying them risks disturbing that.
+      const persistTranscriptIfSegmentsPresent = () => {
+        const current = store.getJob(job.id);
+        if (current && current.segments.length > 0) {
+          store.writeTranscripts(current);
+        }
+      };
+
       const finalizeError = (code: string, message: string) => {
         if (finalized) return;
         finalized = true;
         clearTimers();
+        persistTranscriptIfSegmentsPresent();
         store.updateJob(job.id, {
           status: "error",
           error: { code, message },
@@ -222,6 +273,7 @@ export class HelperSupervisor {
         if (finalized) return;
         finalized = true;
         clearTimers();
+        persistTranscriptIfSegmentsPresent();
         store.updateJob(job.id, {
           status: "error",
           error: { code, message },
@@ -235,6 +287,7 @@ export class HelperSupervisor {
         if (finalized) return;
         finalized = true;
         clearTimers();
+        persistTranscriptIfSegmentsPresent();
         store.updateJob(job.id, {
           status: "error",
           error: {

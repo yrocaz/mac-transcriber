@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { JobStore } from "../../src/jobStore";
 import { HelperSupervisor } from "../../src/supervisor";
@@ -8,6 +10,16 @@ function makeStore(): JobStore {
   const store = new JobStore(makeTempDataDir());
   store.init();
   return store;
+}
+
+/** Like makeStore(), but also returns the backing data dir so a test can
+ * assert on what actually landed on disk (transcript.json/srt), not just
+ * the in-memory record. */
+function makeStoreWithDir(): { store: JobStore; dataDir: string } {
+  const dataDir = makeTempDataDir();
+  const store = new JobStore(dataDir);
+  store.init();
+  return { store, dataDir };
 }
 
 describe("HelperSupervisor: happy path", () => {
@@ -177,6 +189,86 @@ describe("HelperSupervisor: the three timeouts", () => {
     expect(finished.status).toBe("error");
     expect(finished.error?.code).toBe("inactivityTimeout");
     expect(finished.stderrTail).toContain("diagnostic line for stderr capture test");
+  }, 10_000);
+});
+
+describe("HelperSupervisor: Critical 1 — diarization keepalive vs. the inactivity timeout", () => {
+  // Spec §6 review finding: FluidAudio's diarization model
+  // download/prepareModels() window emits nothing on stdout on its own
+  // (unlike Apple's AssetInventory path, which reports its own
+  // model_download progress) — without a keepalive, that silence can
+  // exceed the inactivity budget and kill an otherwise-healthy,
+  // already-transcribed job. These two scenarios are a matched pair that
+  // differ only in whether keepalive ticks are present, so together they
+  // discriminate "the timeout logic works" from "this job just happened to
+  // finish in time."
+
+  it("errors with inactivityTimeout when silence follows real segments, but still persists the transcript to disk", async () => {
+    const { store, dataDir } = makeStoreWithDir();
+    const job = store.createJob({
+      id: "j14",
+      path: fixtureMediaPath("diarize-silent-after-segments.wav"),
+      locale: "en-US",
+      diarize: true,
+    });
+
+    const supervisor = new HelperSupervisor({ helperPath: FAKE_HELPER_PATH, timeouts: FAST_TIMEOUTS });
+    await supervisor.run(job, store);
+
+    const finished = store.getJob("j14")!;
+    expect(finished.status).toBe("error");
+    expect(finished.error?.code).toBe("inactivityTimeout");
+
+    // The discriminating assertion: segments transcribed before the silence
+    // hit disk even though the job ultimately errored. Reading job.segments
+    // off the in-memory record would pass regardless of the fix (the
+    // `segment` event handler always populates it); reading the actual
+    // transcript.json file only passes once supervisor.ts's error-finalize
+    // paths call store.writeTranscripts() (Critical 1b).
+    const transcriptPath = path.join(dataDir, "jobs", "j14", "transcript.json");
+    expect(fs.existsSync(transcriptPath)).toBe(true);
+    const transcript = JSON.parse(fs.readFileSync(transcriptPath, "utf8"));
+    expect(transcript.segments).toEqual([
+      { id: 0, start: 0, end: 2, text: "Hello there.", speaker: null },
+      { id: 1, start: 2, end: 4, text: "General Kenobi.", speaker: null },
+    ]);
+
+    const srtPath = path.join(dataDir, "jobs", "j14", "transcript.srt");
+    expect(fs.existsSync(srtPath)).toBe(true);
+  }, 10_000);
+
+  it("stays alive past the inactivity budget and reaches done when diarize-stage keepalive ticks arrive", async () => {
+    const store = makeStore();
+    const job = store.createJob({
+      id: "j15",
+      path: fixtureMediaPath("diarize-keepalive-then-done.wav"),
+      locale: "en-US",
+      diarize: true,
+    });
+
+    // Same FAST_TIMEOUTS.inactivityTimeoutMs (400ms) as the sibling test
+    // above; the fixture's ticks are spaced 150ms apart across ~900ms —
+    // longer than the budget — so reaching "done" here is only possible
+    // because each tick resets the inactivity timer before it can fire.
+    // NOTE on scope: this is canned NDJSON from fake-helper.sh, not the
+    // real Swift helper — it proves the SERVER correctly treats a
+    // diarize-stage tick as activity (a mechanism that already existed:
+    // resetInactivityTimer() fires on any parsed line, unconditional of
+    // event type). It does not, by itself, prove the real helper actually
+    // emits these ticks — that was verified separately by running the real
+    // `speech-helper transcribe` binary and inspecting its stdout for
+    // `{"pct":0,"stage":"diarize","type":"progress"}` immediately after the
+    // final transcribe pct:1 (see the final fix report).
+    const supervisor = new HelperSupervisor({ helperPath: FAKE_HELPER_PATH, timeouts: FAST_TIMEOUTS });
+    await supervisor.run(job, store);
+
+    const finished = store.getJob("j15")!;
+    expect(finished.status).toBe("done");
+    expect(finished.progress).toBe(1);
+    expect(finished.segments).toEqual([
+      { start: 0, end: 2, text: "Hello there." },
+      { start: 2, end: 4, text: "General Kenobi." },
+    ]);
   }, 10_000);
 });
 

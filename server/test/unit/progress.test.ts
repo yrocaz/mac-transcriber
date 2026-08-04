@@ -51,4 +51,39 @@ describe("MonotonicProgress", () => {
     expect(result).toBeCloseTo(0.99);
     expect(p.value).toBeCloseTo(0.99);
   });
+
+  it("a diarize-stage keepalive tick (pct:0) is a no-op once transcribe has reached 1.0 (Critical 1)", () => {
+    // Pins existing MonotonicProgress/mapStageProgress behavior — this file
+    // isn't touched by the Critical 1 fix, so this test passes identically
+    // before and after it; it's a characterization test for the invariant
+    // the fix depends on ("model_download doesn't move progress" already
+    // held for the model_download event type; this documents that the same
+    // holds for a synthetic diarize-stage pct:0 tick used as a keepalive),
+    // not a regression test for the fix itself. Two other things this test
+    // does NOT cover, verified separately (see the final fix report):
+    // (1) the fake-helper pair in supervisor.test.ts ("Critical 1 —
+    // diarization keepalive vs. the inactivity timeout") exercises the
+    // SERVER's side of the contract (any NDJSON line resets the inactivity
+    // timer; a post-transcription error still persists segments) against
+    // canned NDJSON — it does not invoke the real Swift helper or
+    // KeepAliveTicker at all, and would pass unchanged even if
+    // KeepAliveTicker were deleted. (2) That the real helper binary
+    // actually emits the `{"pct":0,"stage":"diarize","type":"progress"}`
+    // tick immediately before diarization (the HELPER side of the
+    // contract) was verified directly by running
+    // `speech-helper transcribe --input test-fixtures/two-voice-interview.wav`
+    // and inspecting its stdout.
+    const p = new MonotonicProgress(true);
+    p.apply("transcribe", 1); // mapped to 0.9
+    expect(p.value).toBeCloseTo(0.9);
+
+    const afterFirstTick = p.apply("diarize", 0); // mapped to 0.9 + 0*0.1 = 0.9
+    expect(afterFirstTick).toBeCloseTo(0.9);
+    expect(p.value).toBeCloseTo(0.9);
+
+    // Repeated ticks (the periodic keepalive) are equally inert.
+    p.apply("diarize", 0);
+    p.apply("diarize", 0);
+    expect(p.value).toBeCloseTo(0.9);
+  });
 });

@@ -109,6 +109,55 @@ case "$name" in
     emit '{"type":"done","durationSec":5}'
     ;;
 
+  diarize-silent-after-segments*)
+    # Critical 1 regression fixture: emits ready, full transcribe progress,
+    # and real segments — exactly what a completed transcription looks like
+    # — then falls silent through what would be FluidAudio's un-instrumented
+    # model-download/prepareModels() window (no `model_download` progress,
+    # no keepalive tick, nothing) until the inactivity timeout fires. Proves
+    # two things together: (a) the job DOES error with inactivityTimeout
+    # (this scenario deliberately has no keepalive, unlike the real fixed
+    # helper — see diarize-keepalive-then-done below for the counterpart
+    # that proves ticks prevent this), and (b) the segments already emitted
+    # before the silence are not lost — supervisor.ts's error-finalize paths
+    # must persist them to transcript.json/srt even though the job ends in
+    # "error", not "done".
+    emit '{"type":"ready","durationSec":10}'
+    emit '{"type":"progress","stage":"transcribe","pct":0.5}'
+    emit '{"type":"progress","stage":"transcribe","pct":1}'
+    emit '{"type":"segment","start":0,"end":2,"text":"Hello there."}'
+    emit '{"type":"segment","start":2,"end":4,"text":"General Kenobi."}'
+    snooze 30
+    emit '{"type":"done","durationSec":10}'
+    ;;
+
+  diarize-keepalive-then-done*)
+    # Counterpart to diarize-silent-after-segments above: same setup
+    # (ready, transcribe progress, segments), but instead of true silence,
+    # emits periodic diarize-stage keepalive ticks
+    # (progress{stage:"diarize",pct:0}) spanning a window LONGER than the
+    # test's inactivity-timeout budget before finishing normally. Each tick
+    # is spaced well under the inactivity budget, so none of them
+    # individually would reset-and-then-immediately-expire; the cumulative
+    # silent-if-not-for-ticks window exceeds the budget. If the job reaches
+    # "done" here, the ticks — not luck — are what kept it alive; this is
+    # the server-side half of the keepalive contract (the Swift-side half,
+    # KeepAliveTicker actually emitting these ticks, is covered by the
+    # helper build/E2E, not this fake-helper unit test).
+    emit '{"type":"ready","durationSec":10}'
+    emit '{"type":"progress","stage":"transcribe","pct":0.5}'
+    emit '{"type":"progress","stage":"transcribe","pct":1}'
+    emit '{"type":"segment","start":0,"end":2,"text":"Hello there."}'
+    emit '{"type":"segment","start":2,"end":4,"text":"General Kenobi."}'
+    for _ in $(seq 1 6); do
+      snooze 0.15
+      emit '{"type":"progress","stage":"diarize","pct":0}'
+    done
+    emit '{"type":"progress","stage":"diarize","pct":1}'
+    emit '{"type":"speakers","segments":[{"start":0,"end":2,"speaker":"S1"},{"start":2,"end":4,"speaker":"S2"}],"count":2}'
+    emit '{"type":"done","durationSec":10}'
+    ;;
+
   stderr-then-hang*)
     # Writes diagnostics to stderr, then falls silent — exercises stderr
     # capture on a timeout-driven kill.
