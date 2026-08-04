@@ -48,7 +48,11 @@ struct TranscribeCommand: AsyncParsableCommand {
             }
 
             guard SpeechTranscriber.isAvailable else {
-                throw HelperError(code: "noModel", message: "SpeechTranscriber is not available on this device.")
+                // Distinct from spec §6's `noModel` (missing model assets,
+                // recoverable by downloading) — `unavailable` means the
+                // SpeechTranscriber API itself isn't usable on this device at
+                // all, so the server can branch on the two differently.
+                throw HelperError(code: "unavailable", message: "SpeechTranscriber is not available on this device.")
             }
 
             let resolvedLocale = try await LocaleResolver.resolve(locale)
@@ -103,13 +107,27 @@ struct TranscribeCommand: AsyncParsableCommand {
             }
             resultsTask = task
 
+            let transcript: AttributedString
             if let lastSample = try await analyzer.analyzeSequence(from: prepared.audioFile) {
                 try await analyzer.finalizeAndFinish(through: lastSample)
+                transcript = try await task.value
             } else {
+                // analyzeSequence returned nil: the file had no audio to feed
+                // the analyzer (e.g. zero-length/empty). This is a documented,
+                // expected outcome (spec's recipe explicitly calls for
+                // cancelAndFinishNow() here), not a failure — it must still
+                // resolve as a clean `done` with zero segments, not an
+                // `error`. cancelAndFinishNow() closes the results stream via
+                // cancellation, which can surface as CancellationError (or
+                // simply an empty/incomplete result) from the still-running
+                // results-consumer task; `try?` swallows that deliberately
+                // rather than letting it propagate to the outer catch, where
+                // mapToHelperError has no CancellationError case and would
+                // otherwise turn this into a spurious `error{code:"unknown"}`.
                 await analyzer.cancelAndFinishNow()
+                task.cancel()
+                transcript = (try? await task.value) ?? AttributedString("")
             }
-
-            let transcript = try await task.value
 
             for segment in transcript.sentenceSegments() {
                 EventEmitter.shared.emit(.segment(start: segment.start, end: segment.end, text: segment.text))

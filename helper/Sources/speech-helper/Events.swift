@@ -37,20 +37,43 @@ enum Event {
 /// `FileHandle`, bypassing C stdio buffering), serialized so concurrent emitters
 /// (the main analysis task and the AssetInstallationRequest progress KVO
 /// callback, which fires on an arbitrary thread) never interleave a line.
+///
+/// Also enforces "exactly one terminal event, always last" as a structural
+/// invariant rather than a probabilistic one: once a `.done` or `.error` has
+/// been emitted, every subsequent `emit` call is dropped, under the same lock
+/// that serializes the writes. This closes the window where a results-consumer
+/// task that's still mid-iteration when the main task throws could otherwise
+/// land a stray `progress` line after the terminal `error` line — cooperative
+/// cancellation (`Task.cancel()`) does not preempt an already-running
+/// iteration, so relying on cancellation alone to prevent this is not
+/// sufficient. Task 3's server relies on "error/done is always the last
+/// line," so the guarantee is made real here, at the single choke point all
+/// events pass through.
 final class EventEmitter: @unchecked Sendable {
     static let shared = EventEmitter()
 
     private let lock = NSLock()
     private let stdout = FileHandle.standardOutput
+    private var hasEmittedTerminal = false
 
     func emit(_ event: Event) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !hasEmittedTerminal else { return }
+
+        switch event {
+        case .done, .error:
+            hasEmittedTerminal = true
+        default:
+            break
+        }
+
         guard let data = try? JSONSerialization.data(withJSONObject: event.json, options: [.sortedKeys]) else {
             return
         }
         var line = data
         line.append(0x0A) // '\n'
-        lock.lock()
-        defer { lock.unlock() }
         stdout.write(line)
     }
 }
