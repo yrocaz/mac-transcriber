@@ -84,10 +84,17 @@ function deriveDiarizationStatus(job: JobRecord): "ok" | "failed" | "disabled" {
     return "failed";
   }
 
-  // speakers is non-null; even count:0 is "ok".
-  // Check for explicit diarizationFailed warning as a secondary signal,
-  // but the presence of the speakers event (even with 0 count) means we
-  // got a result from the diarizer, so "failed" only if the warning is there.
+  // speakers is non-null here, which per the helper's own contract already
+  // means diarization succeeded: TranscribeCommand.swift's diarization
+  // block (lines ~141-161) makes a non-null `speakers` event and a
+  // `diarizationFailed` warning mutually exclusive — the `speakers` event
+  // fires only on the success path, the warning only in the catch block
+  // that skips it. So `job.speakers !== null && hasDiarizationFailedWarning`
+  // is not a reachable combination in production; this check is defensive
+  // only (e.g. against a future helper change relaxing that contract, or a
+  // malformed job.json), and intentionally kept rather than removed so a
+  // regression in that invariant degrades to "failed" instead of silently
+  // reporting "ok".
   const hasDiarizationFailedWarning = job.warnings.some((w) => w.code === "diarizationFailed");
   if (hasDiarizationFailedWarning) {
     return "failed";

@@ -10,6 +10,14 @@ export interface BuiltApp {
   app: FastifyInstance;
   store: JobStore;
   queue: JobQueue;
+  /**
+   * The single supervisor instance driving every job (concurrency 1).
+   * Exposed so `index.ts` can call `killActive()` on SIGINT/SIGTERM —
+   * without it, Ctrl-C mid-job orphans the helper holding a SpeechAnalyzer
+   * session, and a re-POST after restart would run two analyses
+   * concurrently (minor finding 7).
+   */
+  supervisor: HelperSupervisor;
   /** Ids of jobs marked "interrupted" by restart recovery during boot. */
   recoveredJobIds: string[];
 }
@@ -39,5 +47,5 @@ export function buildApp(config: AppConfig): BuiltApp {
   registerJobRoutes(app, { store, queue });
   registerHealthRoute(app, { helperPath: config.helperPath });
 
-  return { app, store, queue, recoveredJobIds };
+  return { app, store, queue, supervisor, recoveredJobIds };
 }

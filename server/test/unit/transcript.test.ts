@@ -67,7 +67,13 @@ describe("assembleTranscript", () => {
       expect(transcript.metadata.speakerCount).toBeNull();
     });
 
-    it('is "failed" when diarizationFailed warning is present', () => {
+    it('(defensive, not reachable via the real helper) is "failed" when speakers is non-null but a diarizationFailed warning is also present', () => {
+      // TranscribeCommand.swift's diarization block makes a non-null
+      // `speakers` event and a `diarizationFailed` warning mutually
+      // exclusive in practice (see transcript.ts's deriveDiarizationStatus
+      // comment) — this combination can't arise from the real helper. Kept
+      // as a defensive-fallback test: if that invariant ever regresses, the
+      // job should still degrade to "failed" rather than silently "ok".
       const job = makeJobRecord({
         diarize: true,
         speakers: {
@@ -88,7 +94,7 @@ describe("assembleTranscript", () => {
   });
 
   describe("speaker merge (max-overlap strategy)", () => {
-    it("assigns speaker with maximum overlap", () => {
+    it("breaks a tied overlap by earliest speaker (genuine max-overlap case is below)", () => {
       const job = makeJobRecord({
         segments: [
           { start: 0, end: 5, text: "Long segment" },
@@ -102,8 +108,11 @@ describe("assembleTranscript", () => {
         },
       });
       const transcript = assembleTranscript(job);
-      // Segment spans 0-5. S1 overlaps 0-2 (2s), S2 overlaps 3-5 (2s).
-      // Tie → earliest wins, so S1.
+      // Segment spans 0-5. S1 overlaps 0-2 (2s), S2 overlaps 3-5 (2s) — an
+      // exact tie, not a max. findMaxOverlapSpeaker only replaces the
+      // running winner on strictly-greater overlap, so the first speaker
+      // encountered (S1) wins ties. The test for a genuine strictly-greater
+      // max lives at "speaker merge: maximum overlap selection" below.
       expect(transcript.segments[0].speaker).toBe("S1");
     });
 
@@ -158,7 +167,11 @@ describe("assembleTranscript", () => {
       expect(transcript.segments.every((s) => s.speaker === null)).toBe(true);
     });
 
-    it("returns null for all segments when count:0 but speaker failed warning present", () => {
+    it("(defensive, not reachable via the real helper) returns null for all segments when count:0 but a diarizationFailed warning is also present", () => {
+      // Same unreachable-in-practice combination as the metadata.diarization
+      // defensive test above (speakers non-null + diarizationFailed warning
+      // both present) — kept to pin the defensive fallback's segment-level
+      // behavior too.
       const job = makeJobRecord({
         diarize: true,
         speakers: {
@@ -203,7 +216,9 @@ describe("assembleTranscript", () => {
       });
       const transcript = assembleTranscript(job);
       expect(transcript.text).toBe("Hello world");
-      // But the segments array includes empty ones still (indices unchanged for id consistency).
+      // Empty segments are dropped from the segments array entirely (not
+      // just from `text`); remaining segments get contiguous 0-based ids —
+      // see the "segment id assignment" describe block below for that.
       expect(transcript.segments).toHaveLength(2); // Only non-empty
     });
 

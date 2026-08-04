@@ -143,6 +143,29 @@ export class JobStore {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(`Failed to write transcripts for job ${job.id}:`, err);
+
+      // Minor finding: previously console.error only, so the API and disk
+      // could silently disagree (GET /jobs/:id keeps serving the in-memory
+      // record as if nothing were wrong, e.g. status:"done" with no
+      // transcript.json ever having landed). Surface the failure in the
+      // job's own warnings[] — the documented, persisted, observable-after-
+      // the-fact channel (spec §6) — so it shows up in GET /jobs/:id. A
+      // separate try/catch: if the job record itself has since vanished
+      // from the cache, or this update somehow fails, that must not mask
+      // the original write failure by throwing out of this method (which
+      // callers rely on never throwing).
+      try {
+        const message = err instanceof Error ? err.message : String(err);
+        const current = this.cache.get(job.id);
+        if (current) {
+          this.updateJob(job.id, {
+            warnings: [...current.warnings, { code: "transcriptWriteFailed", message }],
+          });
+        }
+      } catch (warnErr) {
+        // eslint-disable-next-line no-console
+        console.error(`Failed to record transcriptWriteFailed warning for job ${job.id}:`, warnErr);
+      }
     }
   }
 }
