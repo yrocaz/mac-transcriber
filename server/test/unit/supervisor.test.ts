@@ -179,3 +179,62 @@ describe("HelperSupervisor: the three timeouts", () => {
     expect(finished.stderrTail).toContain("diagnostic line for stderr capture test");
   }, 10_000);
 });
+
+describe("HelperSupervisor: exit vs. finalize race (orphaned descendant holds stdout open)", () => {
+  // Regression test for a fix-round-1 finding: the run-promise must resolve
+  // if and only if the job record has reached a terminal state. It must
+  // NOT resolve merely because the immediate child process has exited —
+  // `orphan-exit.wav` backgrounds a `sleep` before exiting (without a
+  // terminal NDJSON event), so the process is gone but stdout stays open
+  // via the orphaned descendant. Only the inactivity-timeout backstop may
+  // finalize this job.
+  it("does not resolve before the job is finalized, clears every timer once it does, and lets the queue continue", async () => {
+    const store = makeStore();
+    const orphanJob = store.createJob({
+      id: "j13a",
+      path: fixtureMediaPath("orphan-exit.wav"),
+      locale: "en-US",
+      diarize: true,
+    });
+    const nextJob = store.createJob({
+      id: "j13b",
+      path: fixtureMediaPath("basic2.wav"),
+      locale: "en-US",
+      diarize: true,
+    });
+
+    const supervisor = new HelperSupervisor({ helperPath: FAKE_HELPER_PATH, timeouts: FAST_TIMEOUTS });
+
+    const runPromise = supervisor.run(orphanJob, store);
+    let resolvedEarly = false;
+    void runPromise.then(() => {
+      resolvedEarly = true;
+    });
+
+    // The immediate child (bash) exits almost instantly, well before this;
+    // give that plenty of margin while staying comfortably under the
+    // inactivity-timeout backstop (FAST_TIMEOUTS: 400ms) that must
+    // eventually finalize the job.
+    await new Promise((r) => setTimeout(r, 150));
+    expect(resolvedEarly).toBe(false);
+    expect(store.getJob("j13a")?.status).toBe("running");
+
+    await runPromise;
+
+    // (a) resolves only once finalized.
+    expect(resolvedEarly).toBe(true);
+    const finished = store.getJob("j13a")!;
+    expect(finished.status).toBe("error");
+    expect(finished.error?.code).toBe("inactivityTimeout");
+
+    // (b) no supervisor-owned timer remains armed.
+    expect(supervisor.debugActiveTimerCount).toBe(0);
+
+    // (c) the queue (simulated here by a direct next run() call, matching
+    // how JobQueue awaits each job before starting the next) still
+    // proceeds normally.
+    await supervisor.run(nextJob, store);
+    expect(store.getJob("j13b")?.status).toBe("done");
+    expect(supervisor.debugActiveTimerCount).toBe(0);
+  }, 10_000);
+});

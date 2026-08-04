@@ -39,9 +39,35 @@ export interface SupervisorConfig {
  *    the process has exited AND stdout has closed — otherwise a fast final
  *    `done`/`error` line could lose a race against `'exit'` and get
  *    mismarked as an unexplained crash.
+ *  - CORE INVARIANT: `run()`'s promise resolves if and only if the job
+ *    record has reached a terminal state (`finalized`) — see
+ *    `maybeRefreshStderrAndResolve`, which gates on `exited && finalized`,
+ *    not `exited` alone. An earlier version resolved on `exited` alone,
+ *    which let the queue advance to the next job (and let GET /jobs/:id
+ *    report a live "running" status) for a process that had exited but
+ *    whose orphaned descendant was still holding stdout open — the actual
+ *    finalize (from a timeout backstop) then happened *after* the promise
+ *    had already resolved, and the fresh kill-grace timer it armed leaked
+ *    because `resolveOnce`'s guard skipped clearing it on that second call.
+ *    Fixed by (a) requiring `finalized` before resolving and (b) making
+ *    `resolveOnce` clear the kill-grace timer unconditionally, every call,
+ *    not only the first. The spawn-failure path is the one deliberate
+ *    exception: it resolves directly since `exited` can never become true.
  */
 export class HelperSupervisor {
   constructor(private readonly config: SupervisorConfig) {}
+
+  /**
+   * Count of this instance's currently-armed internal timers (startup,
+   * inactivity, total-runtime, kill-grace). Test-only diagnostic: it must
+   * be back to 0 once a `run()` call's promise has settled, and is how the
+   * "no timer remains armed after settle" regression is verified.
+   */
+  private activeTimerCount = 0;
+
+  get debugActiveTimerCount(): number {
+    return this.activeTimerCount;
+  }
 
   run(job: JobRecord, store: JobStore): Promise<void> {
     return new Promise((resolve) => {
@@ -75,15 +101,43 @@ export class HelperSupervisor {
       let inactivityTimer: NodeJS.Timeout | undefined;
       let totalTimer: NodeJS.Timeout | undefined;
 
+      // Every internal setTimeout/clearTimeout goes through these two so
+      // `activeTimerCount` — and therefore `debugActiveTimerCount` — stays
+      // accurate. Tracked via a Set (not a raw increment/decrement) so that
+      // a timer which fires naturally and one which gets explicitly cleared
+      // afterward (e.g. a fired inactivity timer's own callback calling
+      // `clearTimers()`, which touches the same now-stale handle) don't
+      // double-decrement: `Set.delete` on an already-removed handle is a
+      // safe no-op. `clearTimer` always returns `undefined`, so call sites
+      // can write `x = clearTimer(x)` to clear-and-null in one step.
+      const activeHandles = new Set<NodeJS.Timeout>();
+      const armTimer = (fn: () => void, ms: number): NodeJS.Timeout => {
+        const handle = setTimeout(() => {
+          activeHandles.delete(handle);
+          this.activeTimerCount = activeHandles.size;
+          fn();
+        }, ms);
+        activeHandles.add(handle);
+        this.activeTimerCount = activeHandles.size;
+        return handle;
+      };
+      const clearTimer = (handle: NodeJS.Timeout | undefined): undefined => {
+        if (handle !== undefined && activeHandles.delete(handle)) {
+          clearTimeout(handle);
+          this.activeTimerCount = activeHandles.size;
+        }
+        return undefined;
+      };
+
       const clearTimers = () => {
-        if (startupTimer) clearTimeout(startupTimer);
-        if (inactivityTimer) clearTimeout(inactivityTimer);
-        if (totalTimer) clearTimeout(totalTimer);
+        startupTimer = clearTimer(startupTimer);
+        inactivityTimer = clearTimer(inactivityTimer);
+        totalTimer = clearTimer(totalTimer);
       };
 
       const resetInactivityTimer = () => {
-        if (inactivityTimer) clearTimeout(inactivityTimer);
-        inactivityTimer = setTimeout(
+        inactivityTimer = clearTimer(inactivityTimer);
+        inactivityTimer = armTimer(
           () => finalizeError("inactivityTimeout", `Helper produced no events for ${timeouts.inactivityTimeoutMs}ms.`),
           timeouts.inactivityTimeoutMs,
         );
@@ -94,22 +148,25 @@ export class HelperSupervisor {
           timeouts.totalRuntimeMultiplier * durationSec * 1000,
           timeouts.totalRuntimeFloorMs,
         );
-        totalTimer = setTimeout(
+        totalTimer = armTimer(
           () => finalizeError("totalTimeout", `Helper exceeded the total runtime budget (${totalMs}ms).`),
           totalMs,
         );
       };
 
+      // Clears the kill-grace timer on EVERY call, not just the first —
+      // otherwise a timer armed by a later, legitimate finalize (after an
+      // earlier, incorrect resolve) would leak forever. See class docblock.
       const resolveOnce = () => {
+        killTimer = clearTimer(killTimer);
         if (resolved) return;
         resolved = true;
-        if (killTimer) clearTimeout(killTimer);
         resolve();
       };
 
-      /** Arms a SIGKILL safety net and waits for the canonical `exited` flag; does not resolve directly. */
+      /** Arms a SIGKILL safety net; resolves immediately only if the process has already exited. */
       const armKillGraceAndWait = () => {
-        killTimer = setTimeout(() => {
+        killTimer = armTimer(() => {
           try {
             child.kill("SIGKILL");
           } catch {
@@ -179,7 +236,7 @@ export class HelperSupervisor {
       };
 
       // Startup timeout: 60s from spawn to `ready` (spec §6).
-      startupTimer = setTimeout(
+      startupTimer = armTimer(
         () => finalizeError("startupTimeout", `Helper did not emit 'ready' within ${timeouts.startupTimeoutMs}ms.`),
         timeouts.startupTimeoutMs,
       );
@@ -218,7 +275,7 @@ export class HelperSupervisor {
 
         switch (event.type) {
           case "ready": {
-            if (startupTimer) clearTimeout(startupTimer);
+            startupTimer = clearTimer(startupTimer);
             store.updateJob(job.id, { durationSec: event.durationSec });
             armTotalTimer(event.durationSec);
             break;
@@ -267,18 +324,12 @@ export class HelperSupervisor {
         }
       });
 
-      rl.on("close", () => {
-        stdoutClosed = true;
-        // Only decide "died without a terminal event" once stdout has fully
-        // drained AND the process has exited — see class-level notes.
-        if (exited && !finalized) {
-          finalizeUnexpectedExit(exitInfo?.code ?? null, exitInfo?.signal ?? null);
-        }
-        maybeRefreshStderrAndResolve();
-      });
-
+      // Only resolves once the job record has actually reached a terminal
+      // state (`finalized`) AND the process is confirmed gone (`exited`).
+      // See the class docblock's CORE INVARIANT note for why `exited` alone
+      // is not sufficient.
       const maybeRefreshStderrAndResolve = () => {
-        if (!exited) return;
+        if (!exited || !finalized) return;
         // Best-effort: stderr is a separate pipe with no ordering guarantee
         // against stdout/exit, so re-persist the latest tail once we're as
         // settled as we're going to get, in case more arrived after the
@@ -289,6 +340,16 @@ export class HelperSupervisor {
         }
         resolveOnce();
       };
+
+      rl.on("close", () => {
+        stdoutClosed = true;
+        // Only decide "died without a terminal event" once stdout has fully
+        // drained AND the process has exited — see class-level notes.
+        if (exited && !finalized) {
+          finalizeUnexpectedExit(exitInfo?.code ?? null, exitInfo?.signal ?? null);
+        }
+        maybeRefreshStderrAndResolve();
+      });
 
       child.on("exit", (exitCode, signal) => {
         exited = true;

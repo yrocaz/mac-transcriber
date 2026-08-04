@@ -142,6 +142,19 @@ case "$name" in
     exit 1
     ;;
 
+  orphan-exit*)
+    # Exits (without a terminal event) while a backgrounded descendant is
+    # still alive and holding stdout open — deliberately NOT run through
+    # `snooze`/the SIGTERM trap, because the whole point is that bash exits
+    # on its own (not via a signal we send) leaving the background job
+    # orphaned. This exercises the exited-but-not-finalized race: the
+    # supervisor must not resolve until its own inactivity-timeout backstop
+    # finalizes the job, even though the process is technically gone.
+    emit '{"type":"ready","durationSec":5}'
+    sleep 1 &
+    exit 1
+    ;;
+
   *)
     emit '{"type":"ready","durationSec":1}'
     emit '{"type":"done","durationSec":1}'
