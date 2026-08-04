@@ -262,16 +262,34 @@ npm test          # unit suite: fake helper, no real Swift binary, no network
 npm run test:e2e  # E2E suite: real speech-helper, real media, macOS only
 ```
 
+**Before running `npm run test:e2e` on a fresh clone, generate the required
+fixtures first:**
+
+```bash
+./scripts/make-fixtures.sh
+```
+
+This is a required prerequisite, not an optional extra — `test-fixtures/malformed.mp3`
+(and its `.json` sidecar) are gitignored and only exist after running this
+script. Without them, the MP3-repair E2E case (`malformed MP3 fixture: the
+tail-probe/repair path produces a correct transcript`) silently skips rather
+than failing loudly, and it is the *only* coverage of `AudioPreparer.swift`'s
+tail-probe/repair branch — the same branch whose ~90s
+`AVAssetExportSession` cost drove the startup timeout from 60s to 180s (see
+[Development notes](#development-notes)). Skipping it means that regression
+has no test coverage at all. See [Fixtures](#fixtures) below for what else
+the script generates and why the malformed MP3 isn't committed.
+
 ```
 $ npm test
- ✓ test/unit/progress.test.ts (6 tests)
+ ✓ test/unit/progress.test.ts (7 tests)
  ✓ test/unit/config.test.ts (3 tests)
  ✓ test/unit/transcript.test.ts (25 tests)
  ✓ test/unit/jobStore.test.ts (6 tests)
  ✓ test/unit/routes.test.ts (23 tests)
- ✓ test/unit/supervisor.test.ts (12 tests)
+ ✓ test/unit/supervisor.test.ts (14 tests)
  Test Files  6 passed (6)
-      Tests  75 passed (75)
+      Tests  78 passed (78)
 ```
 
 `npm run test:e2e` builds `speech-helper` automatically if the release
@@ -347,26 +365,51 @@ as "fixture not ready" and skips.
 
 ## Development notes
 
-- **Two toolchains on one Mac.** This machine has both Xcode.app and
-  Command Line Tools installed; `swift build`/`swift test` used the active
-  one (`xcode-select -p` → `/Library/Developer/CommandLineTools`). If you
-  switch toolchains, re-verify `swift build -c release` picks up the macOS
-  26 SDK (`.macOS(.v26)` in `helper/Package.swift` requires it).
-- **`swift test` does not run in this environment.** Command Line Tools
-  alone doesn't ship a working `Testing.framework` wiring for `swift test`
-  here — `import Testing` fails with `no such module 'Testing'`:
-  ```
-  $ cd helper && swift test
-  error: emit-module command failed with exit code 1
-  .../EventEmitterTests.swift:2:8: error: no such module 'Testing'
-  ```
-  This is a pre-existing toolchain limitation (confirmed present since
-  Task 1), not a code defect — `helper/Tests/speech-helperTests/` exists
-  and was reviewed by hand; correctness of the Swift helper as a whole is
-  otherwise covered by the E2E suite per the design spec §7. A workaround
-  exists (copying `Testing.framework` next to the built test bundle and
-  passing an explicit `-F` framework search path to `swiftc`) but shouldn't
-  be necessary on a machine with a full Xcode install.
+- **Command Line Tools only, no Xcode.app, on this machine.** `xcode-select -p`
+  → `/Library/Developer/CommandLineTools`; `xcodebuild -version` fails with
+  "requires Xcode, but active developer directory ... is a command line
+  tools instance". `swift build -c release` works fine on this toolchain. If
+  you switch toolchains (e.g. install a full Xcode.app), re-verify it still
+  picks up the macOS 26 SDK (`.macOS(.v26)` in `helper/Package.swift`
+  requires it).
+- **Run Swift tests via `helper/scripts/swift-test.sh`, not bare `swift test`.**
+  On this Command Line Tools-only toolchain, `swift-testing` (`import Testing`,
+  used by `helper/Tests/speech-helperTests/`) needs help in two independent
+  ways, both fixed, one at the manifest level and one at the invocation
+  level:
+  - *Compiling and linking* (`helper/Package.swift`): `Testing.framework`
+    isn't on the default search/runtime-load path outside a full Xcode.app
+    install. `swift build`/bare `swift test` used to fail to even compile
+    the test target (`no such module 'Testing'`). `Package.swift` now
+    probes `DEVELOPER_DIR`/the fixed Command Line Tools path at manifest
+    evaluation time and, if `Testing.framework` is found there, bakes a
+    framework search path and rpath into the test target's build settings
+    (`swiftSettings`/`linkerSettings`) — this makes the target compile,
+    link, and (if invoked directly) run correctly.
+  - *Actually running the suite*: even with the manifest fix, **bare
+    `swift test` on this toolchain silently does nothing** — confirmed by
+    temporarily adding a deliberately-failing test and running bare
+    `swift test`: exit 0, zero output, even with a guaranteed failure
+    present. That's not a display quirk (a quirk can't turn a failing test
+    into a clean exit) — SwiftPM's own decision to invoke the test runner
+    apparently keys off top-level `-Xswiftc`/`-Xlinker` CLI flags, not a
+    target's own build settings, so without those flags on `swift test`'s
+    own command line it skips running the suite entirely, silently. Passing
+    the same search-path flags directly on `swift test`'s CLI (rather than
+    only via the manifest) makes it run correctly, with proper pass/fail
+    reporting and exit codes. `helper/scripts/swift-test.sh` does exactly
+    that (same directory-probing logic as the manifest); run it instead of
+    bare `swift test`:
+    ```
+    $ helper/scripts/swift-test.sh
+    ...
+    ✔ Test run with 8 tests in 2 suites passed after 0.004 seconds.
+    ```
+  This is a SwiftPM/toolchain limitation on a Command Line Tools-only
+  install, not a code defect, and the wrapper degrades to a thin `swift
+  test` passthrough on a toolchain where the framework is already found
+  normally (e.g. a full Xcode.app install) — see the wrapper script's header
+  comment for the full writeup.
 - **Model downloads.** The first diarized job on a fresh machine downloads
   FluidAudio's CoreML models from HuggingFace (network required once, then
   fully offline; `ModelHub.offlineMode`/`REGISTRY_URL` exist for control).
@@ -403,6 +446,30 @@ as "fixture not ready" and skips.
   hardware — if `speech-short.aiff` exports in ~2s there, this was
   specific to this sandboxed environment — but the larger timeout budget
   is harmless regardless of where the ~90s came from.
+
+## Known limitations
+
+- **Diarization decodes the whole prepared audio file into memory at once.**
+  `DiarizationAudioDecoder.swift` reads the entire input into a single
+  `AVAudioPCMBuffer` and converts it in one pass, rather than streaming/
+  chunking. Memory use scales with media length (and, more precisely, with
+  the *decoded* PCM size, so format/duration both matter — e.g. roughly
+  ~645MB for 30 minutes of 16 kHz mono Float32, ~2.5GB for 2 hours) — fine
+  for this v1's personal-pipeline scale, but something to budget for on very
+  long recordings. Switching to FluidAudio's own URL-based `process()`
+  entry point would avoid this, but it doesn't allow setting
+  `primeMethod = .none` on its internal `AVAudioConverter`, which spec §4
+  item 7 mandates (the BufferConverter pattern's rationale: avoiding
+  timestamp drift from source). Chunked decode that keeps `primeMethod =
+  .none` is a real option but a larger change than a fix-review pass
+  should make — left as a v2 item. In the meantime, diarization failure
+  (including an out-of-memory condition) degrades gracefully by design: any
+  error there is non-fatal (spec §8), reported as a `diarizationFailed`
+  warning, and the transcript from transcription is still delivered intact.
+- **Per-event synchronous whole-record disk write.** `JobStore.persist()`
+  (in `jobStore.ts`) rewrites the entire `job.json` on every single job
+  update, synchronously. Fine at this project's scale (single-user,
+  concurrency-1 queue, small JSON records); not something this pass changed.
 
 ## Out of scope (v1)
 
