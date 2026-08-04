@@ -51,7 +51,10 @@ enum SpeakerDiarizer {
     /// first appearance", so segments are sorted by start time and relabeled
     /// here, independent of whatever FluidAudio's cluster index happened to
     /// be.
-    private static func relabelByFirstAppearance(_ segments: [TimedSpeakerSegment]) -> [SpeakerTurn] {
+    /// Not `private`: exercised directly by a unit test (via `@testable
+    /// import`) as a pure function, since it's the one piece of diarization
+    /// logic that doesn't require the real FluidAudio pipeline to test.
+    static func relabelByFirstAppearance(_ segments: [TimedSpeakerSegment]) -> [SpeakerTurn] {
         let ordered = segments.sorted { $0.startTimeSeconds < $1.startTimeSeconds }
 
         var relabeled: [String: String] = [:]
