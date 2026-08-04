@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildTestApp, FAST_TIMEOUTS, fixtureMediaPath, waitFor } from "../helpers/testApp";
 
 describe("POST /jobs validation", () => {
@@ -323,10 +323,32 @@ describe("Transcript files on disk after job completion", () => {
     expect(srt.length).toBeGreaterThan(0);
   });
 
-  it("spec §5 invariant: done job ALWAYS has its transcript files (completion ordering)", async () => {
-    // Verify the core invariant: if status === "done", transcript files exist.
-    // This ensures no orphaned done jobs with missing transcripts.
-    const { app, store, dataDir } = buildTestApp();
+  it("spec §5 invariant: writeTranscripts is called BEFORE updateJob marks done", async () => {
+    // Critical ordering test: writeTranscripts must be called BEFORE the job.json
+    // is persisted with status:"done". This is a deterministic ordering assertion
+    // that would fail if the order were reversed.
+    const { app, store } = buildTestApp();
+
+    // Spy on store methods to track call order.
+    const writeTranscriptsCalls: number[] = [];
+    const updateJobCalls: number[] = [];
+    let callCounter = 0;
+
+    const originalWriteTranscripts = store.writeTranscripts.bind(store);
+    const originalUpdateJob = store.updateJob.bind(store);
+
+    vi.spyOn(store, "writeTranscripts").mockImplementation((job) => {
+      writeTranscriptsCalls.push(callCounter++);
+      return originalWriteTranscripts(job);
+    });
+
+    vi.spyOn(store, "updateJob").mockImplementation((id, patch) => {
+      if (patch.status === "done") {
+        updateJobCalls.push(callCounter++);
+      }
+      return originalUpdateJob(id, patch);
+    });
+
     const create = await app.inject({
       method: "POST",
       url: "/jobs",
@@ -336,16 +358,10 @@ describe("Transcript files on disk after job completion", () => {
 
     await waitFor(() => store.getJob(jobId)?.status === "done", { timeoutMs: 5000 });
 
-    const job = store.getJob(jobId);
-    expect(job?.status).toBe("done");
-
-    const jobDir = path.join(dataDir, "jobs", jobId);
-    const jsonPath = path.join(jobDir, "transcript.json");
-    const srtPath = path.join(jobDir, "transcript.srt");
-
-    // The invariant: done job => both files exist.
-    expect(fs.existsSync(jsonPath)).toBe(true);
-    expect(fs.existsSync(srtPath)).toBe(true);
+    // Verify ordering: writeTranscripts was called before updateJob(done).
+    expect(writeTranscriptsCalls.length).toBeGreaterThan(0);
+    expect(updateJobCalls.length).toBeGreaterThan(0);
+    expect(writeTranscriptsCalls[0]).toBeLessThan(updateJobCalls[0]);
   });
 });
 
