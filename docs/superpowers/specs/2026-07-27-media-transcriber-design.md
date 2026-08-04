@@ -122,8 +122,8 @@ Assembled from proven sources, not designed from scratch:
 - Helper maps [`SFSpeechError.Code`](https://developer.apple.com/documentation/speech/sfspeecherror/code) to friendly codes/messages: `noModel`, `cannotAllocateUnsupportedLocale`, `insufficientResources`, `audioReadFailed`, etc.
 - No-audio-track or unsupported container (mkv/webm) fails fast at `AVAudioFile` open with a clear message. ffmpeg fallback = documented future option, not built now.
 - Helper supervision uses three distinct timeouts, all resulting in kill + job error with stderr captured:
-  - **Startup:** 60s from spawn to the `ready` event (covers file-open and MP3 repair).
-  - **Inactivity:** 120s with no NDJSON event of any type (model downloads stay alive via their `model_download` progress events).
+  - **Startup:** 180s from spawn to the `ready` event (covers file-open and MP3 repair — the `AVAssetExportSession` re-export a malformed MP3 triggers was measured taking up to ~90s in verification; raised from an initial 60s once Task 5's E2E testing showed that budget killed the repair path it was meant to accommodate).
+  - **Inactivity:** 120s with no NDJSON event of any type. Both model-download paths keep the job alive across this window, but by different mechanisms: Apple's `AssetInventory` download is KVO-driven and reports its own `model_download` progress events natively; FluidAudio's diarization model download and `prepareModels()` call emit nothing on their own, so the helper emits a synthetic `progress{stage:"diarize",pct:0}` keepalive immediately before diarization starts and then periodically (every ~20s) until diarization's own progress callback reports real activity (`KeepAliveTicker`, `TranscribeCommand.swift`). `pct:0` is a no-op for the server's monotonic progress mapping once transcription has already reached 1.0, so this never advances or misreports overall progress — it exists purely to reset the inactivity timer.
   - **Total runtime:** `max(2 × durationSec, 10 min)`, armed once `ready` supplies `durationSec`.
 - **Overall job progress** is a monotonic mapping of stage progress: with diarization enabled, `transcribe` maps to 0–0.9 and `diarize` to 0.9–1.0; with `diarize: false`, `transcribe` maps to 0–1.0. The server clamps updates so reported progress never decreases.
 - Diarization `warning` events are appended to `warnings[]` in `job.json` (persisted, returned by `GET /jobs/:id`) so degradation remains observable after the fact.
@@ -132,7 +132,7 @@ Assembled from proven sources, not designed from scratch:
 
 - **TS unit tests (vitest):** SRT rendering, NDJSON event parsing (including `speakers`/`warning` events), speaker-overlap merge logic, job store/state machine, route validation — against a fake helper (shell script echoing canned NDJSON), so tests run fast anywhere.
 - **E2E smoke test (macOS only):** single-voice `say` fixture through the real helper + API; assert transcript content. A two-voice fixture (two different `say` voices concatenated) sanity-checks that diarization yields two speakers. The verified sample mp4 covers container handling.
-- **Swift helper:** kept thin; correctness covered by E2E; no separate Swift test target in v1.
+- **Swift helper:** kept thin; correctness primarily covered by E2E. A Swift test target (`helper/Tests/speech-helperTests/`) was added during the fix-review rounds for logic that doesn't need the real FluidAudio/SpeechAnalyzer pipeline to verify — the `EventEmitter` terminal-event guarantee and `SpeakerDiarizer.relabelByFirstAppearance`'s first-appearance ordering. Run it via `helper/scripts/swift-test.sh`, not bare `swift test` — see that script's header comment and the README's Development notes for why a wrapper is needed on a Command Line Tools-only toolchain.
 
 ## 8. Speaker identification (in scope, v1)
 
