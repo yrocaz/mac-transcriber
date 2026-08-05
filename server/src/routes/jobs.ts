@@ -1,14 +1,11 @@
-import fs from "node:fs";
-import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { DEFAULT_LOCALE } from "../config";
 import { newJobId } from "../idgen";
 import type { JobQueue } from "../queue";
 import type { JobStore } from "../jobStore";
-import { CreateJobBody, SUPPORTED_EXTENSIONS, toJobResponse } from "../types";
+import { CreateJobBody, toJobResponse } from "../types";
 import { assembleTranscript, renderSrt } from "../transcript";
-
-const SUPPORTED_EXTENSIONS_LIST = SUPPORTED_EXTENSIONS.join(", ");
+import { validateMediaPath } from "../validateInput";
 
 export interface JobRoutesDeps {
   store: JobStore;
@@ -28,26 +25,9 @@ export function registerJobRoutes(app: FastifyInstance, deps: JobRoutesDeps): vo
     }
     const body = parsed.data;
 
-    const ext = path.extname(body.path).slice(1).toLowerCase();
-    if (!(SUPPORTED_EXTENSIONS as readonly string[]).includes(ext)) {
-      return reply.code(400).send({
-        error: `Unsupported file extension "${ext || "(none)"}". Supported: ${SUPPORTED_EXTENSIONS_LIST}`,
-      });
-    }
-
-    let stat: fs.Stats;
-    try {
-      stat = fs.statSync(body.path);
-    } catch {
-      return reply.code(400).send({ error: `File does not exist: ${body.path}` });
-    }
-    if (!stat.isFile()) {
-      return reply.code(400).send({ error: `Not a file: ${body.path}` });
-    }
-    try {
-      fs.accessSync(body.path, fs.constants.R_OK);
-    } catch {
-      return reply.code(400).send({ error: `File is not readable: ${body.path}` });
+    const invalid = validateMediaPath(body.path);
+    if (invalid) {
+      return reply.code(400).send({ error: invalid });
     }
 
     const job = store.createJob({

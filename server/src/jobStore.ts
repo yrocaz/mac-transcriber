@@ -108,6 +108,11 @@ export class JobStore {
     return updated;
   }
 
+  /** Directory holding a job's job.json and transcript files. */
+  jobDir(id: string): string {
+    return path.join(this.jobsDir, id);
+  }
+
   private persist(job: JobRecord): void {
     const dir = path.join(this.jobsDir, job.id);
     fs.mkdirSync(dir, { recursive: true });
