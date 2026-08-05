@@ -131,11 +131,36 @@ export const JobSpeakers = z.object({
 });
 export type JobSpeakers = z.infer<typeof JobSpeakers>;
 
+export const SpeakerHint = z.object({
+  exact: z.number().int().positive().nullable(),
+  min: z.number().int().positive().nullable(),
+  max: z.number().int().positive().nullable(),
+});
+export type SpeakerHint = z.infer<typeof SpeakerHint>;
+
 export const JobRecord = z.object({
   id: z.string(),
   path: z.string(),
   locale: z.string(),
   diarize: z.boolean(),
+  /**
+   * Caller-supplied speaker-count hint, passed through to FluidAudio's
+   * clustering. Its defaults are fully automatic, which under-clusters real
+   * multi-party audio (a 5-person panel came back as 3 speakers on
+   * 2026-08-05, one merged cluster holding 27 of 41 talking minutes). Naming
+   * `exact` overrides `min`/`max` inside FluidAudio itself.
+   *
+   * Distinct from the `speakers` field below, which is the diarization
+   * RESULT. This is the request.
+   */
+  speakerHint: SpeakerHint.nullable().default(null),
+  /**
+   * Human-facing destination for the transcript files, in addition to the
+   * internal job directory. Defaults to a folder named after the media file,
+   * beside it — `.../Panel.wav` produces `.../Panel/`. The job directory keeps
+   * its opaque-id copy as the service's own bookkeeping.
+   */
+  outputDir: z.string().nullable().default(null),
 
   status: JobStatus,
   progress: z.number(),
@@ -171,11 +196,20 @@ export const SUPPORTED_EXTENSIONS = [
   "caf",
 ] as const;
 
-export const CreateJobBody = z.object({
-  path: z.string().min(1, "path is required"),
-  locale: z.string().min(1).optional(),
-  diarize: z.boolean().optional(),
-});
+export const CreateJobBody = z
+  .object({
+    path: z.string().min(1, "path is required"),
+    locale: z.string().min(1).optional(),
+    diarize: z.boolean().optional(),
+    /** Exact speaker count, when known. Overrides minSpeakers/maxSpeakers. */
+    speakers: z.number().int().positive().optional(),
+    minSpeakers: z.number().int().positive().optional(),
+    maxSpeakers: z.number().int().positive().optional(),
+  })
+  .refine(
+    (b) => b.minSpeakers === undefined || b.maxSpeakers === undefined || b.minSpeakers <= b.maxSpeakers,
+    { message: "minSpeakers must be <= maxSpeakers" },
+  );
 export type CreateJobBody = z.infer<typeof CreateJobBody>;
 
 export interface JobResponse {

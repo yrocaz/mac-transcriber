@@ -35,3 +35,14 @@ export function validateMediaPath(target: string): string | null {
   }
   return null;
 }
+
+/**
+ * Where a media file's transcripts go for humans: a folder beside the source,
+ * named after it. `/recordings/Panel.wav` → `/recordings/Panel/`. The job
+ * directory keeps its own opaque-id copy for the service's bookkeeping, but
+ * that path is unguessable, which is exactly the problem this solves.
+ */
+export function defaultOutputDir(mediaPath: string): string {
+  const resolved = path.resolve(mediaPath);
+  return path.join(path.dirname(resolved), path.basename(resolved, path.extname(resolved)));
+}

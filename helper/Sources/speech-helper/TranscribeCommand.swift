@@ -27,6 +27,15 @@ struct TranscribeCommand: AsyncParsableCommand {
     @Flag(name: .customLong("no-diarize"), help: "Skip diarization entirely: no diarize-stage progress events, no speakers event.")
     var noDiarize: Bool = false
 
+    @Option(name: .customLong("speakers"), help: "Exact number of speakers, when known. Overrides --min-speakers/--max-speakers.")
+    var speakers: Int?
+
+    @Option(name: .customLong("min-speakers"), help: "Lower bound on speaker count. Ignored when --speakers is given.")
+    var minSpeakers: Int?
+
+    @Option(name: .customLong("max-speakers"), help: "Upper bound on speaker count. Ignored when --speakers is given.")
+    var maxSpeakers: Int?
+
     func run() async throws {
         let inputURL = URL(fileURLWithPath: input)
         var preparedAudio: PreparedAudio?
@@ -164,7 +173,12 @@ struct TranscribeCommand: AsyncParsableCommand {
                     keepAlive.start()
                     defer { keepAlive.stop() }
 
-                    let turns = try await SpeakerDiarizer.diarize(prepared.url) { chunksProcessed, totalChunks in
+                    let hint = SpeakerDiarizer.SpeakerHint(
+                        exact: speakers,
+                        min: minSpeakers,
+                        max: maxSpeakers
+                    )
+                    let turns = try await SpeakerDiarizer.diarize(prepared.url, hint: hint) { chunksProcessed, totalChunks in
                         // Real progress has started arriving: the silent
                         // window is over, so stop ticking.
                         keepAlive.stop()

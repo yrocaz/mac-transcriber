@@ -54,6 +54,22 @@ export interface SupervisorConfig {
  *    not only the first. The spawn-failure path is the one deliberate
  *    exception: it resolves directly since `exited` can never become true.
  */
+/**
+ * Translates a job's speaker-count hint into helper CLI flags. Emits nothing
+ * when no hint was given, leaving FluidAudio's automatic clustering in place.
+ * `exact` overrides the bounds inside FluidAudio, so all three are passed
+ * through as-is rather than reconciled here.
+ */
+function speakerHintArgs(job: JobRecord): string[] {
+  const hint = job.speakerHint;
+  if (!hint || !job.diarize) return [];
+  const args: string[] = [];
+  if (hint.exact !== null) args.push("--speakers", String(hint.exact));
+  if (hint.min !== null) args.push("--min-speakers", String(hint.min));
+  if (hint.max !== null) args.push("--max-speakers", String(hint.max));
+  return args;
+}
+
 export class HelperSupervisor {
   constructor(private readonly config: SupervisorConfig) {}
 
@@ -98,6 +114,7 @@ export class HelperSupervisor {
         "--locale",
         job.locale,
         ...(job.diarize ? [] : ["--no-diarize"]),
+        ...speakerHintArgs(job),
       ];
 
       store.updateJob(job.id, {

@@ -11,6 +11,11 @@ describe("parseArgs", () => {
       diarize: true,
       json: false,
       quiet: false,
+      speakers: null,
+      minSpeakers: null,
+      maxSpeakers: null,
+      outDir: null,
+      noPrompt: false,
     });
   });
 
@@ -40,6 +45,29 @@ describe("parseArgs", () => {
     expect(parseArgs([])).toEqual({ error: "Missing required <media-file> argument" });
     expect(parseArgs(["a.wav", "b.wav"])).toEqual({
       error: "Unexpected extra argument: b.wav",
+    });
+  });
+
+  it("parses speaker-count hints and rejects nonsense values", () => {
+    expect(parseArgs(["a.wav", "--speakers", "5"])).toMatchObject({ speakers: 5 });
+    expect(parseArgs(["a.wav", "--min-speakers", "2", "--max-speakers", "6"])).toMatchObject({
+      minSpeakers: 2,
+      maxSpeakers: 6,
+    });
+    expect(parseArgs(["a.wav", "--speakers", "0"])).toEqual({
+      error: "--speakers must be a positive whole number",
+    });
+    expect(parseArgs(["a.wav", "--speakers", "two"])).toEqual({
+      error: "--speakers must be a positive whole number",
+    });
+    expect(parseArgs(["a.wav", "--speakers", "2.5"])).toEqual({
+      error: "--speakers must be a positive whole number",
+    });
+  });
+
+  it("rejects an inverted speaker range rather than passing it to the helper", () => {
+    expect(parseArgs(["a.wav", "--min-speakers", "6", "--max-speakers", "2"])).toEqual({
+      error: "--min-speakers must be <= --max-speakers",
     });
   });
 

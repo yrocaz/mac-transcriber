@@ -5,7 +5,7 @@ import type { JobQueue } from "../queue";
 import type { JobStore } from "../jobStore";
 import { CreateJobBody, toJobResponse } from "../types";
 import { assembleTranscript, renderSrt } from "../transcript";
-import { validateMediaPath } from "../validateInput";
+import { validateMediaPath, defaultOutputDir } from "../validateInput";
 
 export interface JobRoutesDeps {
   store: JobStore;
@@ -35,6 +35,17 @@ export function registerJobRoutes(app: FastifyInstance, deps: JobRoutesDeps): vo
       path: body.path,
       locale: body.locale ?? DEFAULT_LOCALE,
       diarize: body.diarize ?? true,
+      speakerHint:
+        body.speakers === undefined &&
+        body.minSpeakers === undefined &&
+        body.maxSpeakers === undefined
+          ? null
+          : {
+              exact: body.speakers ?? null,
+              min: body.minSpeakers ?? null,
+              max: body.maxSpeakers ?? null,
+            },
+      outputDir: defaultOutputDir(body.path),
     });
     queue.enqueue(job.id);
 

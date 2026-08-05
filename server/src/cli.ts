@@ -12,11 +12,12 @@
  */
 import path from "node:path";
 import process from "node:process";
+import readline from "node:readline/promises";
 import { loadConfig, DEFAULT_LOCALE } from "./config";
 import { JobStore } from "./jobStore";
 import { HelperSupervisor } from "./supervisor";
 import { newJobId } from "./idgen";
-import { validateMediaPath } from "./validateInput";
+import { validateMediaPath, defaultOutputDir } from "./validateInput";
 import { assembleTranscript } from "./transcript";
 import { TRANSCRIBE_SHARE } from "./progress";
 import type { JobRecord } from "./types";
@@ -30,6 +31,13 @@ interface CliArgs {
   diarize: boolean;
   json: boolean;
   quiet: boolean;
+  /** Exact speaker count when known; overrides min/max inside FluidAudio. */
+  speakers: number | null;
+  minSpeakers: number | null;
+  maxSpeakers: number | null;
+  outDir: string | null;
+  /** Skip the interactive questionnaire even on a TTY. */
+  noPrompt: boolean;
 }
 
 const USAGE = `Usage: transcribe <media-file> [options]
@@ -38,14 +46,24 @@ Transcribes a local audio or video file on-device using Apple SpeechAnalyzer,
 with speaker identification via FluidAudio.
 
 Options:
-  --locale <bcp47>   Transcription locale (default: ${DEFAULT_LOCALE})
-  --no-diarize       Skip speaker identification (faster)
-  --json             Print the full transcript as JSON to stdout
-  --quiet            Suppress the progress bar
-  -h, --help         Show this help
+  --speakers <n>       Exact number of speakers, when known. Improves accuracy
+                       markedly: automatic clustering tends to merge similar
+                       voices on multi-party recordings.
+  --min-speakers <n>   Lower bound, when the exact count is unknown
+  --max-speakers <n>   Upper bound, when the exact count is unknown
+  --locale <bcp47>     Transcription locale (default: ${DEFAULT_LOCALE})
+  --no-diarize         Skip speaker identification (faster)
+  --out <dir>          Write transcripts here instead of beside the media file
+  --json               Print the full transcript as JSON to stdout
+  --quiet              Suppress the progress bar
+  --no-prompt          Never ask questions; use defaults for anything omitted
+  -h, --help           Show this help
 
-Output goes to stdout (transcript path, or JSON with --json); progress is
-drawn on stderr and is hidden automatically when stderr is not a terminal.`;
+Transcripts are written to a folder named after the media file, beside it:
+  /recordings/Panel.wav  ->  /recordings/Panel/{transcript.txt,.json,.srt}
+
+Output goes to stdout (the transcript folder, or JSON with --json); progress
+is drawn on stderr and hidden automatically when stderr is not a terminal.`;
 
 export function parseArgs(argv: string[]): CliArgs | { help: true } | { error: string } {
   let input: string | null = null;
@@ -53,6 +71,18 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { error: s
   let diarize = true;
   let json = false;
   let quiet = false;
+  let speakers: number | null = null;
+  let minSpeakers: number | null = null;
+  let maxSpeakers: number | null = null;
+  let outDir: string | null = null;
+  let noPrompt = false;
+
+  const readCount = (raw: string | undefined, flag: string): number | string => {
+    if (!raw) return `${flag} requires a value`;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 1) return `${flag} must be a positive whole number`;
+    return n;
+  };
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
@@ -60,6 +90,18 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { error: s
     else if (arg === "--no-diarize") diarize = false;
     else if (arg === "--json") json = true;
     else if (arg === "--quiet") quiet = true;
+    else if (arg === "--no-prompt") noPrompt = true;
+    else if (arg === "--speakers" || arg === "--min-speakers" || arg === "--max-speakers") {
+      const value = readCount(argv[++i], arg);
+      if (typeof value === "string") return { error: value };
+      if (arg === "--speakers") speakers = value;
+      else if (arg === "--min-speakers") minSpeakers = value;
+      else maxSpeakers = value;
+    } else if (arg === "--out") {
+      const value = argv[++i];
+      if (!value) return { error: "--out requires a value" };
+      outDir = value;
+    }
     else if (arg === "--locale") {
       const value = argv[++i];
       if (!value) return { error: "--locale requires a value" };
@@ -74,7 +116,21 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { error: s
   }
 
   if (input === null) return { error: "Missing required <media-file> argument" };
-  return { input, locale, diarize, json, quiet };
+  if (minSpeakers !== null && maxSpeakers !== null && minSpeakers > maxSpeakers) {
+    return { error: "--min-speakers must be <= --max-speakers" };
+  }
+  return {
+    input,
+    locale,
+    diarize,
+    json,
+    quiet,
+    speakers,
+    minSpeakers,
+    maxSpeakers,
+    outDir,
+    noPrompt,
+  };
 }
 
 /**
@@ -137,6 +193,41 @@ class ProgressBar {
   }
 }
 
+/**
+ * Asks the few questions that measurably change the result, but only when
+ * they weren't answered on the command line and only on an interactive
+ * terminal. Piped/scripted runs and --no-prompt fall straight through to
+ * defaults, so nothing ever blocks waiting on a human that isn't there.
+ *
+ * Speaker count is the one question worth asking: automatic clustering merged
+ * a 5-person panel into 3 speakers on 2026-08-05, and naming the count is the
+ * documented fix.
+ */
+async function askQuestions(args: CliArgs): Promise<CliArgs> {
+  const interactive =
+    !args.noPrompt && process.stdin.isTTY === true && process.stderr.isTTY === true;
+  const alreadyAnswered =
+    args.speakers !== null || args.minSpeakers !== null || args.maxSpeakers !== null;
+  if (!interactive || !args.diarize || alreadyAnswered) return args;
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    const answer = (
+      await rl.question("  How many speakers are in this recording? [enter to detect] ")
+    ).trim();
+    if (answer === "") return args;
+
+    const n = Number(answer);
+    if (!Number.isInteger(n) || n < 1) {
+      process.stderr.write("  Not a whole number — detecting automatically.\n");
+      return args;
+    }
+    return { ...args, speakers: n };
+  } finally {
+    rl.close();
+  }
+}
+
 export async function main(argv: string[]): Promise<number> {
   const parsed = parseArgs(argv);
   if ("help" in parsed) {
@@ -156,6 +247,7 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
 
+  const args2 = await askQuestions(args);
   const config = loadConfig();
   const store = new JobStore(config.dataDir);
   store.init();
@@ -164,14 +256,23 @@ export async function main(argv: string[]): Promise<number> {
     timeouts: config.timeouts,
   });
 
+  const outputDir = args2.outDir
+    ? path.resolve(args2.outDir)
+    : defaultOutputDir(absolute);
+
   const job = store.createJob({
     id: newJobId(),
     path: absolute,
-    locale: args.locale,
-    diarize: args.diarize,
+    locale: args2.locale,
+    diarize: args2.diarize,
+    speakerHint:
+      args2.speakers === null && args2.minSpeakers === null && args2.maxSpeakers === null
+        ? null
+        : { exact: args2.speakers, min: args2.minSpeakers, max: args2.maxSpeakers },
+    outputDir,
   });
 
-  const showBar = !args.quiet && process.stderr.isTTY === true;
+  const showBar = !args2.quiet && process.stderr.isTTY === true;
   const bar = showBar
     ? new ProgressBar(() => store.getJob(job.id), process.stderr)
     : null;
@@ -206,21 +307,21 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   const transcript = assembleTranscript(final);
-  if (args.json) {
+  if (args2.json) {
     process.stdout.write(`${JSON.stringify(transcript, null, 2)}\n`);
-  } else {
-    const dir = store.jobDir(final.id);
-    if (showBar) {
-      const speakers =
-        transcript.metadata.speakerCount === null
-          ? ""
-          : ` · ${transcript.metadata.speakerCount} speaker${transcript.metadata.speakerCount === 1 ? "" : "s"}`;
-      process.stderr.write(
-        `  ${transcript.segments.length} segments${speakers}\n\n`,
-      );
-    }
-    process.stdout.write(`${path.join(dir, "transcript.json")}\n`);
+    return 0;
   }
+
+  if (showBar) {
+    const count = transcript.metadata.speakerCount;
+    const speakers = count === null ? "" : ` · ${count} speaker${count === 1 ? "" : "s"}`;
+    process.stderr.write(`  ${transcript.segments.length} segments${speakers}\n\n`);
+    process.stderr.write(`  ${path.join(outputDir, "transcript.txt")}   ← readable\n`);
+    process.stderr.write(`  ${path.join(outputDir, "transcript.json")}\n`);
+    process.stderr.write(`  ${path.join(outputDir, "transcript.srt")}\n\n`);
+  }
+  // stdout gets the folder alone, so `open "$(transcribe f.wav)"` works.
+  process.stdout.write(`${outputDir}\n`);
   return 0;
 }
 

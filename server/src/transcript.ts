@@ -1,3 +1,4 @@
+import path from "node:path";
 import { z } from "zod";
 import type { JobRecord, SpeakerTurn } from "./types";
 
@@ -188,4 +189,59 @@ export function renderSrt(segments: TranscriptSegment[]): string {
   });
 
   return lines.join("\n");
+}
+
+/** `[h:]mm:ss` for reading, distinct from SRT's `HH:MM:SS,mmm` timing format. */
+function formatClock(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
+
+/**
+ * Human-readable transcript: a header, then one block per speaker turn with a
+ * timestamp, consecutive same-speaker segments joined into paragraphs.
+ *
+ * This is the format a person opens and the one a later article-generation
+ * step reads most naturally — transcript.json is the machine contract and SRT
+ * is for video players, but neither is pleasant to read. Grouping by turn
+ * rather than by sentence is what makes an interview legible as dialogue.
+ */
+export function renderReadableText(transcript: Transcript): string {
+  const { metadata, segments } = transcript;
+  const out: string[] = [];
+
+  out.push(path.basename(metadata.source));
+  const speakers =
+    metadata.speakerCount === null ? "" : ` · ${metadata.speakerCount} speakers`;
+  out.push(`${formatClock(metadata.durationSec)}${speakers} · ${metadata.locale}`);
+  out.push("");
+
+  let currentSpeaker: string | null | undefined;
+  let buffer: string[] = [];
+  let blockStart = 0;
+
+  const flush = () => {
+    if (buffer.length === 0) return;
+    const label = currentSpeaker ?? "Unknown speaker";
+    out.push(`[${formatClock(blockStart)}] ${label}`);
+    out.push(buffer.join(" "));
+    out.push("");
+    buffer = [];
+  };
+
+  for (const seg of segments) {
+    if (seg.speaker !== currentSpeaker) {
+      flush();
+      currentSpeaker = seg.speaker;
+      blockStart = seg.start;
+    }
+    buffer.push(seg.text);
+  }
+  flush();
+
+  return out.join("\n");
 }

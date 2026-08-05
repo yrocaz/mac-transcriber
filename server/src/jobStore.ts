@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { JobRecord } from "./types";
+import type { JobRecord, SpeakerHint } from "./types";
 import { JobRecord as JobRecordSchema } from "./types";
-import { assembleTranscript, renderSrt } from "./transcript";
+import { assembleTranscript, renderReadableText, renderSrt } from "./transcript";
 
 const INTERRUPTED_MESSAGE = "Server restarted while the job was in progress.";
 
@@ -62,6 +62,8 @@ export class JobStore {
     path: string;
     locale: string;
     diarize: boolean;
+    speakerHint?: SpeakerHint | null;
+    outputDir?: string | null;
   }): JobRecord {
     const now = new Date().toISOString();
     const job: JobRecord = {
@@ -69,6 +71,8 @@ export class JobStore {
       path: input.path,
       locale: input.locale,
       diarize: input.diarize,
+      speakerHint: input.speakerHint ?? null,
+      outputDir: input.outputDir ?? null,
       status: "queued",
       progress: 0,
       warnings: [],
@@ -145,6 +149,31 @@ export class JobStore {
       const srtTmpPath = path.join(dir, `.transcript.srt.${process.pid}.tmp`);
       fs.writeFileSync(srtTmpPath, srt + "\n");
       fs.renameSync(srtTmpPath, srtPath);
+
+      // Readable, speaker-labelled prose — the format a human actually opens,
+      // and the one a later article-generation step reads most naturally.
+      const txt = renderReadableText(transcript);
+      const txtPath = path.join(dir, "transcript.txt");
+      const txtTmpPath = path.join(dir, `.transcript.txt.${process.pid}.tmp`);
+      fs.writeFileSync(txtTmpPath, txt);
+      fs.renameSync(txtTmpPath, txtPath);
+
+      // Mirror into the human-facing folder beside the media file. Failures
+      // here are reported but must not lose the job-directory copy above,
+      // which has already landed.
+      if (job.outputDir) {
+        fs.mkdirSync(job.outputDir, { recursive: true });
+        for (const [name, body] of [
+          ["transcript.json", JSON.stringify(transcript, null, 2)],
+          ["transcript.srt", srt + "\n"],
+          ["transcript.txt", txt],
+        ] as const) {
+          const dest = path.join(job.outputDir, name);
+          const tmp = path.join(job.outputDir, `.${name}.${process.pid}.tmp`);
+          fs.writeFileSync(tmp, body);
+          fs.renameSync(tmp, dest);
+        }
+      }
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(`Failed to write transcripts for job ${job.id}:`, err);
