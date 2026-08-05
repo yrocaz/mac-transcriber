@@ -40,6 +40,16 @@ recordings/
 Roughly **60× realtime** on Apple silicon: a 43-minute recording finishes in
 about 45 seconds.
 
+### Your recordings stay yours
+
+Everything runs on your machine — the only network traffic is a one-time model
+download on first use. Nothing is uploaded, ever.
+
+The shipped `.gitignore` also assumes you might drop a recording into a clone
+to try it out, so transcripts, job records, media files, and the usual
+`recordings/` and `transcripts/` folders are all ignored by default. You would
+have to `git add -f` to commit your own material by accident.
+
 ### Tell it how many speakers there are
 
 This is the single highest-impact thing you can do for transcript quality.
