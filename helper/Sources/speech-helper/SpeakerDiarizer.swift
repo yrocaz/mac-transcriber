@@ -30,14 +30,37 @@ enum SpeakerDiarizer {
     /// a legitimate "nothing to diarize" outcome, not a degraded/failed one.
     /// Consumers of the NDJSON stream should not assume `count >= 1`
     /// whenever a `speakers` event is present.
+    /// Optional caller-supplied bounds on the speaker count. FluidAudio's
+    /// defaults are all nil (fully automatic clustering), which under-clusters
+    /// on real multi-party audio: a 5-person panel measured 2026-08-05 came
+    /// back as 3 speakers, one merged cluster absorbing 27 of 41 talking
+    /// minutes. Telling the clusterer how many voices to expect is the
+    /// remedy FluidAudio exposes; `exact` overrides `min`/`max` in its own
+    /// implementation, so it is passed through unchanged rather than
+    /// reconciled here.
+    struct SpeakerHint {
+        var exact: Int?
+        var min: Int?
+        var max: Int?
+
+        var isEmpty: Bool { exact == nil && min == nil && max == nil }
+    }
+
     static func diarize(
         _ url: URL,
+        hint: SpeakerHint = SpeakerHint(),
         progress: @escaping @Sendable (Int, Int) -> Void
     ) async throws -> [SpeakerTurn] {
         let samples = try DiarizationAudioDecoder.decode(url)
         guard !samples.isEmpty else { return [] }
 
-        let manager = OfflineDiarizerManager(config: .default)
+        var config = OfflineDiarizerConfig.default
+        if !hint.isEmpty {
+            config.clustering.numSpeakers = hint.exact
+            config.clustering.minSpeakers = hint.min
+            config.clustering.maxSpeakers = hint.max
+        }
+        let manager = OfflineDiarizerManager(config: config)
         try await manager.prepareModels()
         let result = try await manager.process(audio: samples, progressCallback: progress)
 

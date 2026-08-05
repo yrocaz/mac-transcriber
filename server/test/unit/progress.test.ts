@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapStageProgress, MonotonicProgress } from "../../src/progress";
+import { mapStageProgress, MonotonicProgress, TRANSCRIBE_SHARE } from "../../src/progress";
 
 describe("mapStageProgress", () => {
   it("maps transcribe to the full [0,1] range when diarize is disabled", () => {
@@ -8,13 +8,13 @@ describe("mapStageProgress", () => {
     expect(mapStageProgress(false, "transcribe", 1)).toBe(1);
   });
 
-  it("maps transcribe to [0,0.9] and diarize to [0.9,1] when diarize is enabled", () => {
+  it("maps transcribe to [0,TRANSCRIBE_SHARE] and diarize to [TRANSCRIBE_SHARE,1] when diarize is enabled", () => {
     expect(mapStageProgress(true, "transcribe", 0)).toBe(0);
-    expect(mapStageProgress(true, "transcribe", 0.5)).toBeCloseTo(0.45);
-    expect(mapStageProgress(true, "transcribe", 1)).toBeCloseTo(0.9);
+    expect(mapStageProgress(true, "transcribe", 0.5)).toBeCloseTo(TRANSCRIBE_SHARE * 0.5);
+    expect(mapStageProgress(true, "transcribe", 1)).toBeCloseTo(TRANSCRIBE_SHARE);
 
-    expect(mapStageProgress(true, "diarize", 0)).toBeCloseTo(0.9);
-    expect(mapStageProgress(true, "diarize", 0.5)).toBeCloseTo(0.95);
+    expect(mapStageProgress(true, "diarize", 0)).toBeCloseTo(TRANSCRIBE_SHARE);
+    expect(mapStageProgress(true, "diarize", 0.5)).toBeCloseTo(TRANSCRIBE_SHARE + (1 - TRANSCRIBE_SHARE) * 0.5);
     expect(mapStageProgress(true, "diarize", 1)).toBeCloseTo(1.0);
   });
 
@@ -35,10 +35,10 @@ describe("MonotonicProgress", () => {
 
   it("handles the diarize split monotonically across both stages", () => {
     const p = new MonotonicProgress(true);
-    expect(p.apply("transcribe", 0.5)).toBeCloseTo(0.45);
-    expect(p.apply("transcribe", 1)).toBeCloseTo(0.9);
-    expect(p.apply("transcribe", 1)).toBeCloseTo(0.9); // duplicate final transcribe pct
-    expect(p.apply("diarize", 0.5)).toBeCloseTo(0.95);
+    expect(p.apply("transcribe", 0.5)).toBeCloseTo(TRANSCRIBE_SHARE * 0.5);
+    expect(p.apply("transcribe", 1)).toBeCloseTo(TRANSCRIBE_SHARE);
+    expect(p.apply("transcribe", 1)).toBeCloseTo(TRANSCRIBE_SHARE); // duplicate final transcribe pct
+    expect(p.apply("diarize", 0.5)).toBeCloseTo(TRANSCRIBE_SHARE + (1 - TRANSCRIBE_SHARE) * 0.5);
     expect(p.apply("diarize", 1)).toBeCloseTo(1.0);
     expect(p.apply("diarize", 1)).toBeCloseTo(1.0); // duplicate final diarize pct (Task 2 note)
   });
@@ -46,10 +46,10 @@ describe("MonotonicProgress", () => {
   it("never reports a lower value even if a stray low-pct event arrives late", () => {
     const p = new MonotonicProgress(true);
     p.apply("diarize", 0.9);
-    expect(p.value).toBeCloseTo(0.99);
+    expect(p.value).toBeCloseTo(TRANSCRIBE_SHARE + (1 - TRANSCRIBE_SHARE) * 0.9);
     const result = p.apply("transcribe", 0.1); // stray/out-of-order event
-    expect(result).toBeCloseTo(0.99);
-    expect(p.value).toBeCloseTo(0.99);
+    expect(result).toBeCloseTo(TRANSCRIBE_SHARE + (1 - TRANSCRIBE_SHARE) * 0.9);
+    expect(p.value).toBeCloseTo(TRANSCRIBE_SHARE + (1 - TRANSCRIBE_SHARE) * 0.9);
   });
 
   it("a diarize-stage keepalive tick (pct:0) is a no-op once transcribe has reached 1.0 (Critical 1)", () => {
@@ -74,16 +74,16 @@ describe("MonotonicProgress", () => {
     // `speech-helper transcribe --input test-fixtures/two-voice-interview.wav`
     // and inspecting its stdout.
     const p = new MonotonicProgress(true);
-    p.apply("transcribe", 1); // mapped to 0.9
-    expect(p.value).toBeCloseTo(0.9);
+    p.apply("transcribe", 1); // mapped to TRANSCRIBE_SHARE
+    expect(p.value).toBeCloseTo(TRANSCRIBE_SHARE);
 
-    const afterFirstTick = p.apply("diarize", 0); // mapped to 0.9 + 0*0.1 = 0.9
-    expect(afterFirstTick).toBeCloseTo(0.9);
-    expect(p.value).toBeCloseTo(0.9);
+    const afterFirstTick = p.apply("diarize", 0); // maps to TRANSCRIBE_SHARE + 0 = TRANSCRIBE_SHARE
+    expect(afterFirstTick).toBeCloseTo(TRANSCRIBE_SHARE);
+    expect(p.value).toBeCloseTo(TRANSCRIBE_SHARE);
 
     // Repeated ticks (the periodic keepalive) are equally inert.
     p.apply("diarize", 0);
     p.apply("diarize", 0);
-    expect(p.value).toBeCloseTo(0.9);
+    expect(p.value).toBeCloseTo(TRANSCRIBE_SHARE);
   });
 });

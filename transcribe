@@ -1,0 +1,17 @@
+#!/bin/sh
+# Convenience wrapper: transcribe a media file with a live progress bar.
+#   ./transcribe "/path/to/Panel.wav"
+# Builds the Swift helper and TypeScript server on first run if needed.
+set -e
+here="$(cd "$(dirname "$0")" && pwd)"
+
+if [ ! -x "$here/helper/.build/release/speech-helper" ]; then
+  echo "Building Swift helper (first run only)..." >&2
+  (cd "$here/helper" && swift build -c release)
+fi
+if [ ! -f "$here/server/dist/cli.js" ]; then
+  echo "Building server (first run only)..." >&2
+  (cd "$here/server" && npm install --silent && npm run build --silent)
+fi
+
+exec node "$here/server/dist/cli.js" "$@"

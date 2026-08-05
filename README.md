@@ -1,4 +1,4 @@
-# media-transcriber
+# mac-transcriber
 
 Local-first media transcription for macOS. Point it at a video or audio file
 on disk and get back a structured, punctuated transcript with anonymous
@@ -11,6 +11,53 @@ download.
 The transcript schema is designed as the input to a future "turn this into
 a blog article/guide" step (not built here) — a flat, clean `text` field for
 prose quality, plus timestamped `segments` for citing the source media.
+
+> **Status:** a personal project, shared in case it's useful. It works and it's
+> tested, but it's built for one person's workflow on one Mac. No support,
+> roadmap, or backwards-compatibility promises. Issues and forks welcome.
+
+## Quick start
+
+```sh
+git clone https://github.com/yrocaz/mac-transcriber.git
+cd mac-transcriber
+./transcribe /path/to/recording.wav
+```
+
+The wrapper builds both components on first run, then asks how many speakers
+are in the recording (answer it — see below), shows a live progress bar, and
+writes the transcript to a folder beside your media file:
+
+```
+recordings/
+├── Panel.wav
+└── Panel/
+    ├── transcript.txt    ← readable, speaker-labelled prose
+    ├── transcript.json   ← timestamped segments + metadata
+    └── transcript.srt    ← subtitles
+```
+
+Roughly **60× realtime** on Apple silicon: a 43-minute recording finishes in
+about 45 seconds.
+
+### Tell it how many speakers there are
+
+This is the single highest-impact thing you can do for transcript quality.
+Automatic clustering under-clusters real multi-party audio: a measured
+5-person panel came back as **3 speakers**, with one merged cluster absorbing
+27 of its 41 talking minutes. Supplying the count fixes it.
+
+```sh
+./transcribe Panel.wav --speakers 5              # exact count, when known
+./transcribe Panel.wav --min-speakers 3 --max-speakers 6   # a range
+./transcribe Panel.wav --no-diarize              # skip speakers entirely, faster
+```
+
+Run `./transcribe --help` for the rest. Interactive runs prompt for the count;
+piped or scripted runs never block, and `--no-prompt` disables the question.
+
+The HTTP API takes the same hints as `speakers` / `minSpeakers` /
+`maxSpeakers` on `POST /jobs`.
 
 ## What it is
 
@@ -477,3 +524,28 @@ Article/guide generation, named speakers (voice enrollment), file upload,
 auth, SSE/WebSocket progress, and `mkv`/`webm`/`ogg` via ffmpeg. See the
 [design spec](docs/superpowers/specs/2026-07-27-media-transcriber-design.md#out-of-scope-v1)
 for the full list and rationale.
+
+## Contributing
+
+This is a personal project, so there's no roadmap to align with — but bug
+reports and pull requests are welcome. If you're changing behaviour, please
+run `cd server && npm test` (unit, fast, offline) and, when your change
+touches the helper or the job pipeline, `npm run test:e2e` after generating
+fixtures with `scripts/make-fixtures.sh`. Note the `swift test` caveat in
+[Development notes](#development-notes) — use `helper/scripts/swift-test.sh`,
+not bare `swift test`, or you'll get a green suite that ran nothing.
+
+## Credits
+
+Built by studying existing work rather than designing from scratch. The Swift
+helper owes most of its shape to [yap](https://github.com/finnvoor/yap);
+speaker diarization is [FluidAudio](https://github.com/FluidInference/FluidAudio);
+the hybrid architecture follows the precedent set by
+[swift-scribe](https://github.com/FluidInference/swift-scribe).
+
+Full attribution — dependencies, borrowed patterns, model licensing, and the
+primary sources the design was written against — is in [CREDITS.md](CREDITS.md).
+
+## License
+
+[MIT](LICENSE) — free to use, copy, modify, and distribute.

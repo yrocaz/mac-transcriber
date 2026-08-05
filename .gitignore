@@ -12,3 +12,22 @@ data/
 # without the fixture it describes.
 test-fixtures/malformed.mp3
 test-fixtures/malformed.mp3.json
+
+# Internal working notes (measurements, subagent reports) — not part of the project
+.superpowers/
+
+# Transcript folders the CLI/service writes beside media files, including the
+# ones test runs create next to their fixtures
+server/test/fixtures/media/*/
+
+# Third-party sample media: unclear redistribution terms, so it is fetched by
+# scripts/make-fixtures.sh rather than committed (same reasoning as malformed.mp3)
+test-fixtures/sample-5s.mp4
+
+# Transcript outputs — never commit transcripts of real recordings. The CLI
+# writes these into a folder named after the media file, which lands inside
+# the repo whenever the source media does.
+transcript.json
+transcript.srt
+transcript.txt
+test-fixtures/*/

@@ -67,3 +67,13 @@ Recorded because they show where this system's real risks concentrate — proces
 5. **Segment IDs were assigned before empty segments were filtered**, producing gaps — behind a test named "assigns sequential ids" that contained no empty segments.
 
 Two tests were also caught claiming coverage they didn't have (the ID test above, and an ordering test that passed under the buggy order). Both were replaced with assertions verified to fail before the fix.
+
+## Diarization accuracy on real multi-party audio (2026-08-05)
+
+Measured on a real 43.2-minute, 5-speaker panel recording (2 hosts, 3 panelists).
+
+**Automatic clustering under-clusters.** With no hint, FluidAudio returned **3 speakers**, one merged cluster holding 27 of 41 talking minutes across 393 of 554 segments — hosts and panelists collapsed together. Supplying the known count (`--speakers 5`) fixed the distribution: 11.8 / 9.9 / 7.7 / 7.6 / 4.0 talking minutes, and speaker turns rose from 83 to 134. This is why the speaker-count hint exists as a first-class input on both the CLI and `POST /jobs`.
+
+**Residual limitation: turn-boundary lag, not a merge bug.** Verified by comparing a mislabelled sentence against the raw diarization turns: the sentence at 163.2–165.24s sits *entirely* inside FluidAudio's S2 turn (150.1–165.96s), so the max-overlap merge chose correctly — FluidAudio's boundary is simply ~2.8s late. The practical effect is that the first sentence of an answer can be attributed to the previous speaker. Tuning `OfflineDiarizerConfig.Segmentation` (`minDurationOn`/`minDurationOff`, onset/offset thresholds) is the lever if this ever needs improving; it was not attempted.
+
+**Throughput at this length:** 44.2s wall clock for 43.2 minutes of audio (~59× realtime), no warnings.
