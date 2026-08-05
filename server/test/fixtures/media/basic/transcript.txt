@@ -1,8 +1,0 @@
-basic.wav
-0:10 · 2 speakers · en-US
-
-[0:00] S1
-Hello there.
-
-[0:02] S2
-General Kenobi.
