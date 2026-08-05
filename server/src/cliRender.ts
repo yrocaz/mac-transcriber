@@ -89,7 +89,9 @@ export interface StatusLineInput {
   tick: number;
 }
 
-const LABEL_WIDTH = 20;
+// Wide enough that the longest label ("Identifying speakers", 20 chars)
+// still leaves a gap before the bar.
+const LABEL_WIDTH = 22;
 const MIN_BAR = 8;
 const MAX_BAR = 32;
 

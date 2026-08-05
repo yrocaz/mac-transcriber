@@ -12,6 +12,10 @@ The transcript schema is designed as the input to a future "turn this into
 a blog article/guide" step (not built here) — a flat, clean `text` field for
 prose quality, plus timestamped `segments` for citing the source media.
 
+<p align="center">
+  <img src="docs/demo.svg" alt="Terminal showing mac-transcriber transcribing a 43-minute recording with a live progress bar, identifying 5 speakers, and writing transcript.txt, .json and .srt beside the media file" width="760">
+</p>
+
 > **Status:** a personal project, shared in case it's useful. It works and it's
 > tested, but it's built for one person's workflow on one Mac. No support,
 > roadmap, or backwards-compatibility promises. Issues and forks welcome.

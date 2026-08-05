@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="322" viewBox="0 0 760 322" role="img" aria-label="Terminal showing mac-transcriber transcribing a 43-minute recording, identifying speakers, and writing transcript files">
+  <title>mac-transcriber running on a 43-minute panel recording</title>
+
+  <rect width="760" height="322" rx="10" fill="#14161a"/>
+  <path d="M0 10a10 10 0 0 1 10-10h740a10 10 0 0 1 10 10v20H0z" fill="#1d2026"/>
+  <circle cx="20" cy="15" r="5.5" fill="#e06c60"/>
+  <circle cx="38" cy="15" r="5.5" fill="#e0a458"/>
+  <circle cx="56" cy="15" r="5.5" fill="#7fb069"/>
+  <text x="352" y="19" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#6f7681">transcribe</text>
+
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" xml:space="preserve">
+    <text x="20" y="62" fill="#d7dbe0"><tspan fill="#7fb069">$</tspan> ./transcribe Panel.wav <tspan fill="#e0a458">--speakers 5</tspan></text>
+
+    <text x="20" y="92" fill="#6f7681">  Panel.wav · 43:10</text>
+
+    <text x="20" y="128" fill="#d7dbe0">  Identifying speakers</text>
+    <rect x="196" y="118" width="182" height="11" rx="2" fill="#56b6c2"/>
+    <rect x="378" y="118" width="46" height="11" rx="2" fill="#333840"/>
+    <text x="440" y="128" fill="#d7dbe0"> 82%<tspan fill="#6f7681">   0:08</tspan></text>
+
+    <text x="20" y="166" fill="#d7dbe0">  554 segments · 5 speakers</text>
+
+    <text x="20" y="202" fill="#56b6c2">  ~/recordings/Panel/transcript.txt<tspan fill="#6f7681">   ← readable</tspan></text>
+    <text x="20" y="224" fill="#56b6c2">  ~/recordings/Panel/transcript.json</text>
+    <text x="20" y="246" fill="#56b6c2">  ~/recordings/Panel/transcript.srt</text>
+
+    <text x="20" y="284" fill="#6f7681">  [12:43] <tspan fill="#e0a458">S2</tspan>  Sure — I have been building distributed systems</text>
+    <text x="20" y="304" fill="#6f7681">              for about twelve years now.</text>
+  </g>
+</svg>
