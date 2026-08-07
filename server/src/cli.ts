@@ -22,7 +22,7 @@ import { assembleTranscript } from "./transcript";
 import { collectReviewItems } from "./review";
 import { TRANSCRIBE_SHARE } from "./progress";
 import { transcribeOne } from "./runFile";
-import { runTree, runLogPath, type TreeSummary } from "./runTree";
+import { runTree, planTree, runLogPath, type TreeSummary, type TreePlan } from "./runTree";
 import { parseHints, type HintRule } from "./hints";
 import type { JobRecord } from "./types";
 import { type Phase, formatJobError, renderHeader, renderStatusLine } from "./cliRender";
@@ -46,6 +46,8 @@ interface CliArgs {
   hintsFile: string | null;
   /** Re-transcribe files that already have output (tree mode only). */
   force: boolean;
+  /** Show what a tree run would do, without transcribing (tree mode only). */
+  dryRun: boolean;
 }
 
 const USAGE = `Usage: transcribe <media-file|directory> [options]
@@ -77,6 +79,10 @@ Directory (tree) mode:
   --force              Re-transcribe files that already have a transcript.
                        Without it, completed files are skipped, so an
                        interrupted run resumes for free.
+  --dry-run            List what would be transcribed, which hint rule each
+                       file matched, and where output would go — then stop.
+                       Costs seconds; use it to check a hints file before
+                       committing hours to a run.
 
 Transcripts are written to a folder named after the media file, beside it:
   /recordings/Panel.wav  ->  /recordings/Panel/{transcript.txt,.json,.srt,review.md}
@@ -101,6 +107,7 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { error: s
   let noPrompt = false;
   let hintsFile: string | null = null;
   let force = false;
+  let dryRun = false;
 
   const readCount = (raw: string | undefined, flag: string): number | string => {
     if (!raw) return `${flag} requires a value`;
@@ -117,6 +124,7 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { error: s
     else if (arg === "--quiet") quiet = true;
     else if (arg === "--no-prompt") noPrompt = true;
     else if (arg === "--force") force = true;
+    else if (arg === "--dry-run") dryRun = true;
     else if (arg === "--hints") {
       const value = argv[++i];
       if (!value) return { error: "--hints requires a value" };
@@ -163,6 +171,7 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { error: s
     noPrompt,
     hintsFile,
     force,
+    dryRun,
   };
 }
 
@@ -281,6 +290,40 @@ export function renderTreeSummary(summary: TreeSummary): string {
       lines.push(`    ${outcome.relativePath} — ${outcome.error ?? "unknown error"}`);
     }
   }
+  lines.push("");
+  return `${lines.join("\n")}\n`;
+}
+
+/**
+ * Renders a `--dry-run` plan: what would run, with which speaker hint, and
+ * where it would land. Exists because checking a hints file by starting a real
+ * run means waiting out the whole archive to find out rule 3 never matched.
+ */
+export function renderTreePlan(plan: TreePlan): string {
+  if (plan.files.length === 0) return `\n  no media files found under ${plan.root}\n\n`;
+
+  const describe = (file: TreePlan["files"][number]): string => {
+    const hint = file.speakerHint;
+    const speakers =
+      hint === null
+        ? "no hint"
+        : hint.exact !== null
+          ? `${hint.exact} speakers`
+          : `${hint.min ?? "?"}–${hint.max ?? "?"} speakers`;
+    const rule = file.matchedGlob ? `via "${file.matchedGlob}"` : "via CLI flags";
+    return `${speakers} ${rule}`;
+  };
+
+  const width = Math.min(60, Math.max(...plan.files.map((f) => f.relativePath.length)));
+  const lines = ["", `  ${plan.files.length} media files under ${plan.root}`, ""];
+  for (const file of plan.files) {
+    const mark = file.action === "skip" ? "skip" : "  → ";
+    lines.push(`  ${mark} ${file.relativePath.padEnd(width)}  ${describe(file)}`);
+  }
+
+  const todo = plan.files.filter((f) => f.action === "transcribe").length;
+  const skip = plan.files.length - todo;
+  lines.push("", `  would transcribe ${todo}, skip ${skip} (already done)`, "");
   return `${lines.join("\n")}\n`;
 }
 
@@ -311,15 +354,25 @@ async function runTreeMode(
     return 2;
   }
 
+  const outRoot = args.outDir ? path.resolve(args.outDir) : null;
+  const speakerHint =
+    args.speakers === null && args.minSpeakers === null && args.maxSpeakers === null
+      ? null
+      : { exact: args.speakers, min: args.minSpeakers, max: args.maxSpeakers };
+
+  if (args.dryRun) {
+    const plan = planTree({ root, outRoot, hints, speakerHint, force: args.force });
+    if (args.json) process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
+    else process.stderr.write(renderTreePlan(plan));
+    return 0;
+  }
+
   const summary = await runTree(supervisor, store, {
     root,
-    outRoot: args.outDir ? path.resolve(args.outDir) : null,
+    outRoot,
     locale: args.locale,
     diarize: args.diarize,
-    speakerHint:
-      args.speakers === null && args.minSpeakers === null && args.maxSpeakers === null
-        ? null
-        : { exact: args.speakers, min: args.minSpeakers, max: args.maxSpeakers },
+    speakerHint,
     hints,
     force: args.force,
     onJobStart,
@@ -334,8 +387,11 @@ async function runTreeMode(
   if (args.json) {
     process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   } else {
-    if (bar) process.stderr.write(renderTreeSummary(summary));
-    process.stderr.write(`  log: ${runLogPath(root, args.outDir ? path.resolve(args.outDir) : null)}\n\n`);
+    // Not gated on `bar`: a non-TTY or --quiet run is exactly the scripted
+    // batch case, and the summary — counts plus which files failed — is the
+    // deliverable. Only the live progress bar depends on a terminal.
+    process.stderr.write(renderTreeSummary(summary));
+    process.stderr.write(`  log: ${runLogPath(root, outRoot)}\n\n`);
     // stdout stays pipeable: one output directory per line.
     for (const outcome of summary.outcomes) {
       if (outcome.status !== "failed") process.stdout.write(`${outcome.outputDir}\n`);
@@ -345,7 +401,26 @@ async function runTreeMode(
   return summary.failed > 0 ? 1 : 0;
 }
 
+/**
+ * Registers the interrupt handlers for the duration of one run and removes
+ * them afterwards. Without the removal, anything that calls `main()` more than
+ * once in a process (the test suite, or an embedder) accumulates listeners and
+ * inherits a handler that calls `process.exit(130)` — so a teardown SIGTERM
+ * kills the process mid-assertion.
+ */
 export async function main(argv: string[]): Promise<number> {
+  const handlers: Array<[NodeJS.Signals, (signal: NodeJS.Signals) => void]> = [];
+  try {
+    return await runMain(argv, handlers);
+  } finally {
+    for (const [signal, handler] of handlers) process.off(signal, handler);
+  }
+}
+
+async function runMain(
+  argv: string[],
+  handlers: Array<[NodeJS.Signals, (signal: NodeJS.Signals) => void]>,
+): Promise<number> {
   const parsed = parseArgs(argv);
   if ("help" in parsed) {
     process.stdout.write(`${USAGE}\n`);
@@ -394,6 +469,7 @@ export async function main(argv: string[]): Promise<number> {
   };
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
+  handlers.push(["SIGINT", onSignal], ["SIGTERM", onSignal]);
 
   if (inputIsDirectory) {
     return await runTreeMode(args, absolute, store, supervisor, bar, (id) => {

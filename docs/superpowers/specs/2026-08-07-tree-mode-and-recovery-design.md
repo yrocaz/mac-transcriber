@@ -135,6 +135,14 @@ per rule invites conflicts with the mirrored layout for no known use case.
   omitted): timestamped `start` / `done` / `skip` / `fail` lines.
 - **Summary** on stderr at the end: total, done, skipped, failed, recovered,
   plus the failing paths. `--json` emits the same summary as JSON on stdout.
+  Printed regardless of whether stderr is a TTY — a scripted batch run is the
+  primary use case, and the summary is its deliverable; only the live progress
+  bar requires a terminal.
+- **`--dry-run`** resolves the whole plan — which files, which hint rule each
+  matched, where output would go — and stops. `planTree` produces the plan and
+  `runTree` consumes it, so a preview cannot drift from the real run. Without
+  this, checking a hints file means starting a multi-hour run to discover that
+  rule 3 never matched.
 
 ### Concurrency
 
@@ -169,8 +177,13 @@ lifecycle for tree mode. Both paths run the identical code.
 - Recovery with a fake helper that fails once then succeeds: asserts one
   re-encode, `metadata.source` is the original, temp file removed, warning
   present.
-- Tree run: skip-existing, `--force`, failure isolation, exit code, `_run.log`
-  contents.
+- Tree run: skip-existing, `--force`, failure isolation, `_run.log` contents.
+- `main()` boundary: exit 0 all-success, 1 any-failure, 2 malformed hints (and
+  nothing transcribed), 2 missing path; summary printed on a non-TTY stderr.
+  `TreeSummary.failed` is not the same assertion as the process exit code, and
+  only the latter is what `transcribe dir/ && next-step` depends on.
+- `--dry-run`: transcribes nothing, exits 0, reports the matched glob per file,
+  marks already-done files as skip, and emits the plan as JSON under `--json`.
 
 ## Out of scope
 

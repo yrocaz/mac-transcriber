@@ -108,6 +108,24 @@ Recordings/Next Deal Edit/Panel.wav  →  Transcripts/Next Deal Edit/Panel/
 Without `--out`, each file's transcripts land beside it, exactly as in
 single-file mode.
 
+Check a hints file before committing hours — `--dry-run` walks the tree,
+resolves every rule, and stops:
+
+```sh
+./transcribe ~/Recordings --out ~/Transcripts --hints hints.txt --dry-run
+```
+
+```
+    →  3rd State of Econ/3rd state of econ - panel.wav   5 speakers via "*[Pp]anel*"
+    →  24 Year In Review - Edit/Zac.wav                  1–2 speakers via "*Intro*"
+   skip Finding Money Edit/happy birthday.wav            1–2 speakers via "*Intro*"
+
+  would transcribe 42, skip 1 (already done)
+```
+
+A rule that never appears in that middle column never matched. The real run
+executes the same plan the preview printed, so the two cannot disagree.
+
 Three behaviours make an unattended run survivable:
 
 - **Completed files are skipped**, so an interrupted run resumes for free.

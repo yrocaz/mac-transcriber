@@ -67,12 +67,31 @@ last**, like a routing table.
 - Only `--speakers`, `--min-speakers`, `--max-speakers` are allowed. An
   unknown flag fails the run with the line number rather than being ignored.
 
-Check your rules route correctly before committing hours to a run:
+Check your rules route correctly **before** committing hours to a run.
+`--dry-run` walks the tree, resolves every hint, and stops — seconds, not
+hours:
 
 ```sh
-./transcribe "/Volumes/Drive/Recordings" --hints hints.txt --out /tmp/probe --json \
-  | head -40
+./transcribe "/Volumes/Drive/Recordings" --hints hints.txt --out ~/Transcripts --dry-run
 ```
+
+```
+  43 media files under /Volumes/Drive/Recordings
+
+    →  2023 Year in Review.mp3                      5 speakers via "*"
+    →  24 Year In Review - Edit/Zac.wav             1–2 speakers via "*Intro*"
+    →  3rd State of Econ/3rd state of econ - panel.wav   5 speakers via "*[Pp]anel*"
+   skip Finding Money Edit/happy birthday.wav       1–2 speakers via "*Intro*"
+
+  would transcribe 42, skip 1 (already done)
+```
+
+Read the middle column: that is the count each file will actually be
+diarized with. A rule that never appears is a rule that never matched.
+`--dry-run --json` emits the same plan machine-readably.
+
+The real run executes this exact plan — `runTree` consumes what `planTree`
+produced — so the preview cannot disagree with what happens.
 
 ## 3. Run it
 

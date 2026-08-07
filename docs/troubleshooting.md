@@ -131,11 +131,14 @@ the hint guides clustering, it does not constrain the output.
   `*Panel*`.
 - Spaces in globs are fine — the glob ends at the first flag.
 
-Print what each file resolved to before a long run:
+Print what each file resolved to, without transcribing anything:
 
 ```sh
-./transcribe "$SRC" --hints hints.txt --out /tmp/probe --json | head -40
+./transcribe "$SRC" --hints hints.txt --out "$DST" --dry-run
 ```
+
+The middle column is the speaker count that file will actually get. A rule
+that never appears never matched.
 
 ## The run stopped partway
 

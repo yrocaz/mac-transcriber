@@ -18,6 +18,7 @@ describe("parseArgs", () => {
       noPrompt: false,
       hintsFile: null,
       force: false,
+      dryRun: false,
     });
   });
 

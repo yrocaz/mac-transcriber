@@ -54,8 +54,57 @@ export interface RunTreeOptions {
   onFileEnd?: (outcome: FileOutcome) => void;
 }
 
+/** One file's resolved plan: where it goes, which rule chose its speaker count. */
+export interface PlannedFile {
+  mediaPath: string;
+  relativePath: string;
+  outputDir: string;
+  /** The glob that matched, or null when falling back to the CLI's own flags. */
+  matchedGlob: string | null;
+  speakerHint: SpeakerHint | null;
+  action: "transcribe" | "skip";
+}
+
+export interface TreePlan {
+  root: string;
+  files: PlannedFile[];
+}
+
 function hintToSpeakerHint(rule: HintRule): SpeakerHint {
   return { exact: rule.flags.speakers, min: rule.flags.minSpeakers, max: rule.flags.maxSpeakers };
+}
+
+/**
+ * Resolves what a run *would* do, without transcribing anything.
+ *
+ * `runTree` executes this exact plan rather than recomputing as it goes, so
+ * `--dry-run` cannot drift from the real thing — a preview that disagrees with
+ * the run is worse than no preview, because you'd trust it.
+ */
+export function planTree(options: {
+  root: string;
+  outRoot: string | null;
+  hints: HintRule[];
+  speakerHint: SpeakerHint | null;
+  force: boolean;
+}): TreePlan {
+  const root = path.resolve(options.root);
+  const files = walkMediaTree(root).map((mediaPath): PlannedFile => {
+    const relativePath = relativeKey(root, mediaPath);
+    const outputDir = options.outRoot
+      ? mirroredOutputDir(root, mediaPath, options.outRoot)
+      : defaultOutputDir(mediaPath);
+    const rule = matchHint(options.hints, relativePath);
+    return {
+      mediaPath,
+      relativePath,
+      outputDir,
+      matchedGlob: rule?.glob ?? null,
+      speakerHint: rule ? hintToSpeakerHint(rule) : options.speakerHint,
+      action: !options.force && hasTranscript(outputDir) ? "skip" : "transcribe",
+    };
+  });
+  return { root, files };
 }
 
 /** Appends one timestamped line to the run log; never throws into the batch. */
@@ -88,21 +137,17 @@ export async function runTree(
   store: JobStore,
   options: RunTreeOptions,
 ): Promise<TreeSummary> {
-  const root = path.resolve(options.root);
-  const files = walkMediaTree(root);
+  const { root, files } = planTree(options);
   const log = makeLogger(runLogPath(root, options.outRoot));
 
   log(`=== run started · ${files.length} media files under ${root} ===`);
 
   const outcomes: FileOutcome[] = [];
 
-  for (const [index, mediaPath] of files.entries()) {
-    const relativePath = relativeKey(root, mediaPath);
-    const outputDir = options.outRoot
-      ? mirroredOutputDir(root, mediaPath, options.outRoot)
-      : defaultOutputDir(mediaPath);
+  for (const [index, planned] of files.entries()) {
+    const { mediaPath, relativePath, outputDir, speakerHint, matchedGlob } = planned;
 
-    if (!options.force && hasTranscript(outputDir)) {
+    if (planned.action === "skip") {
       const outcome: FileOutcome = {
         relativePath,
         outputDir,
@@ -117,11 +162,8 @@ export async function runTree(
       continue;
     }
 
-    const rule = matchHint(options.hints, relativePath);
-    const speakerHint = rule ? hintToSpeakerHint(rule) : options.speakerHint;
-
     options.onFileStart?.(index + 1, files.length, relativePath);
-    log(`start ${relativePath}${rule ? ` · hint "${rule.glob}"` : ""}`);
+    log(`start ${relativePath}${matchedGlob ? ` · hint "${matchedGlob}"` : ""}`);
 
     // One file's failure is one file's failure. A throw here — not just a
     // failed job, but a bug in our own code — must not cost the other 42.
