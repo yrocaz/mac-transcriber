@@ -19,6 +19,7 @@ import { HelperSupervisor } from "./supervisor";
 import { newJobId } from "./idgen";
 import { validateMediaPath, defaultOutputDir } from "./validateInput";
 import { assembleTranscript } from "./transcript";
+import { collectReviewItems } from "./review";
 import { TRANSCRIBE_SHARE } from "./progress";
 import type { JobRecord } from "./types";
 import { type Phase, renderHeader, renderStatusLine } from "./cliRender";
@@ -60,7 +61,7 @@ Options:
   -h, --help           Show this help
 
 Transcripts are written to a folder named after the media file, beside it:
-  /recordings/Panel.wav  ->  /recordings/Panel/{transcript.txt,.json,.srt}
+  /recordings/Panel.wav  ->  /recordings/Panel/{transcript.txt,.json,.srt,review.md}
 
 Output goes to stdout (the transcript folder, or JSON with --json); progress
 is drawn on stderr and hidden automatically when stderr is not a terminal.`;
@@ -315,10 +316,15 @@ export async function main(argv: string[]): Promise<number> {
   if (showBar) {
     const count = transcript.metadata.speakerCount;
     const speakers = count === null ? "" : ` · ${count} speaker${count === 1 ? "" : "s"}`;
+    const flagged = collectReviewItems(final, transcript).length;
     process.stderr.write(`  ${transcript.segments.length} segments${speakers}\n\n`);
     process.stderr.write(`  ${path.join(outputDir, "transcript.txt")}   ← readable\n`);
     process.stderr.write(`  ${path.join(outputDir, "transcript.json")}\n`);
-    process.stderr.write(`  ${path.join(outputDir, "transcript.srt")}\n\n`);
+    process.stderr.write(`  ${path.join(outputDir, "transcript.srt")}\n`);
+    // Naming the count here is the point: a review list nobody knows about is
+    // a file nobody opens.
+    const suffix = flagged === 0 ? "   ← nothing flagged" : `   ← ${flagged} to check`;
+    process.stderr.write(`  ${path.join(outputDir, "review.md")}${suffix}\n\n`);
   }
   // stdout gets the folder alone, so `open "$(transcribe f.wav)"` works.
   process.stdout.write(`${outputDir}\n`);

@@ -13,10 +13,11 @@ data/
 
 # Transcript outputs, wherever they land. The CLI writes these into a folder
 # named after the media file, which ends up inside the repo whenever the source
-# media does.
+# media does. review.md quotes the recording verbatim, same as the rest.
 transcript.json
 transcript.srt
 transcript.txt
+review.md
 
 # Folders the CLI creates beside media files that live in the repo.
 test-fixtures/*/

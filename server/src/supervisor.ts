@@ -374,9 +374,14 @@ export class HelperSupervisor {
           }
           case "segment": {
             const current = store.getJob(job.id);
-            const segments = current
-              ? [...current.segments, { start: event.start, end: event.end, text: event.text }]
-              : [{ start: event.start, end: event.end, text: event.text }];
+            const segment = {
+              start: event.start,
+              end: event.end,
+              text: event.text,
+              confidence: event.confidence ?? null,
+              lowTokens: event.lowTokens ?? [],
+            };
+            const segments = current ? [...current.segments, segment] : [segment];
             store.updateJob(job.id, { segments });
             break;
           }

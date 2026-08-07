@@ -155,3 +155,84 @@ SpeechAnalyzer has no diarization module, so speaker labels come from a second, 
 **Apple (official):** [SpeechAnalyzer](https://developer.apple.com/documentation/speech/speechanalyzer) · [SpeechTranscriber](https://developer.apple.com/documentation/speech/speechtranscriber) · [AssetInventory](https://developer.apple.com/documentation/speech/assetinventory) · [Preset](https://developer.apple.com/documentation/speech/speechtranscriber/preset) · [Result](https://developer.apple.com/documentation/speech/speechtranscriber/result) · [SFSpeechError.Code](https://developer.apple.com/documentation/speech/sfspeecherror/code) · [WWDC25 session 277](https://developer.apple.com/videos/play/wwdc2025/277/) · [Official sample app](https://developer.apple.com/documentation/speech/bringing-advanced-speech-to-text-capabilities-to-your-app) · [Locale forum answer (790108)](https://developer.apple.com/forums/thread/790108) · [File-path reliability thread (818005)](https://developer.apple.com/forums/thread/818005)
 
 **OSS studied:** [yap](https://github.com/finnvoor/yap) (1.5k⭐, CC0 — primary pattern source) · [argmax minimal example](https://github.com/argmaxinc/apple-speechanalyzer-cli-example) · [node-apple-speech](https://github.com/mybigday/node-apple-speech) (stdio bridge) · [Stenographer](https://github.com/otaviocc/Stenographer) (event design) · [whishper](https://github.com/pluja/whishper) / [Scriberr](https://github.com/rishikanthc/Scriberr) (job model) · [ohr](https://github.com/Arthur-Ficial/ohr) (HTTP shape) · [FluidAudio](https://github.com/FluidInference/FluidAudio) (diarization engine) · [swift-scribe](https://github.com/FluidInference/swift-scribe) (hybrid precedent)
+
+---
+
+## Addendum 2026-08-07: confidence signal and `review.md`
+
+Amends §3 (transcript schema) and §4 (helper contract). The sections above are
+left as approved and merged; this records what changed and why.
+
+**Motivation.** The question was whether transcribing a file N times and diffing
+the runs would surface errors worth spot-checking. It does not: the pipeline is
+deterministic. Five runs across two files — including both diarization modes on
+a 43-minute five-speaker panel — produced byte-identical output, and the one
+known accuracy defect (five speakers auto-clustering to three) reproduced
+exactly. A deterministic decoder makes the same mistake with the same certainty
+every time, so agreement across runs measures nothing.
+
+What the engine does expose, and what the helper previously discarded:
+`SpeechTranscriber.ReportingOption.alternativeTranscriptions` and
+`ResultAttributeOption.transcriptionConfidence`. Both are populated densely — on
+the panel, 8,220 tokens with zero nil confidences spanning 0.001–1.0.
+
+Measurements: `docs/2026-08-07-repeat-run-determinism.md`.
+
+**§4 amendment — helper.** `SpeechTranscriber` is now constructed with
+`reportingOptions: [.alternativeTranscriptions]` and `attributeOptions:
+[.audioTimeRange, .transcriptionConfidence]`. Requested unconditionally rather
+than behind a flag: enabling them leaves the transcript text byte-identical
+(44,242 characters measured both ways), so there is no output or accuracy reason
+to make them opt-in.
+
+The `segment` event gains two optional fields:
+
+```jsonc
+{
+  "type": "segment", "start": 1467.0, "end": 1470.2, "text": "Find newth and comb.",
+  "confidence": 0.512,
+  "lowTokens": [
+    { "text": "newth", "start": 1467.32, "confidence": 0.185,
+      "alternatives": [" fine, newth", " fine, nuth"] }
+  ]
+}
+```
+
+Both are **omitted** rather than sent as `null`/`[]` when there is nothing to
+report, so a consumer can distinguish "not measured" from "measured as clean"
+— and so a helper binary predating this change still parses.
+
+Three decisions worth recording:
+
+1. **`confidence` is the mean, not the minimum.** On real audio the minimum is
+   held by function words and disfluencies (floor tokens: `their` 0.001, `the`
+   0.031, `um` 0.058), so a min-based score would publish near-zero for nearly
+   every sentence and read as broken.
+2. **`lowTokens` captures below 0.9 — a data-volume cutoff, not a review
+   policy.** Capturing every token would put ~8,200 entries per 43 minutes into
+   the event stream. The review threshold and content filtering live
+   server-side, so policy can be tuned without rebuilding the helper.
+3. **`alternatives` are carried per-word, not per-segment.** They are scoped to
+   a `SpeechTranscriber.Result` — a phrase-sized chunk that need not align with
+   sentence boundaries — so attaching them to a sentence would misattribute
+   them.
+
+**§3 amendment — transcript schema.** `segments[]` gains `confidence: number |
+null` (the sentence mean). Per-word detail deliberately stays out of
+`transcript.json` to keep it readable; it goes to `review.md`.
+
+**New output — `review.md`.** A fourth file beside `transcript.{txt,json,srt}`
+in both the job directory and the user-facing output folder: low-confidence
+content words ranked worst-first, each with timestamp, speaker, containing
+sentence, and the engine's runner-up hypotheses. Rendered by
+`server/src/review.ts`, which owns the review threshold (0.5), the filler-word
+filter, and alternative presentation.
+
+It is written unconditionally, including the "nothing flagged" case — an absent
+file is ambiguous between "clean" and "not generated", and that difference
+matters to someone deciding whether to trust the transcript. The rendered text
+states plainly that a clean list reflects the model's certainty, not verified
+accuracy.
+
+`review.md` quotes the recording verbatim and is therefore listed in
+`.gitignore` alongside the other transcript outputs.

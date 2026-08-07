@@ -63,7 +63,7 @@ import Testing
             // this, so the guarantee must live in the emitter, not the
             // cancellation call.
             emitter.emit(.progress(stage: "transcribe", pct: 0.9))
-            emitter.emit(.segment(start: 0, end: 1, text: "should never appear"))
+            emitter.emit(.segment(start: 0, end: 1, text: "should never appear", confidence: nil, lowTokens: []))
             emitter.emit(.done(durationSec: 6.571))
         }
 
@@ -100,7 +100,7 @@ import Testing
             emitter.emit(.ready(durationSec: 6.571))
             emitter.emit(.modelDownload(progress: 1))
             emitter.emit(.progress(stage: "transcribe", pct: 0.447))
-            emitter.emit(.segment(start: 0, end: 2.88, text: "The quick brown fox jumps over the lazy dog."))
+            emitter.emit(.segment(start: 0, end: 2.88, text: "The quick brown fox jumps over the lazy dog.", confidence: nil, lowTokens: []))
             emitter.emit(.done(durationSec: 6.571))
         }
 

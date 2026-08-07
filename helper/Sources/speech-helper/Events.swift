@@ -8,7 +8,13 @@ enum Event {
     case ready(durationSec: Decimal)
     case modelDownload(progress: Decimal)
     case progress(stage: String, pct: Decimal)
-    case segment(start: Decimal, end: Decimal, text: String)
+    case segment(
+        start: Decimal,
+        end: Decimal,
+        text: String,
+        confidence: Decimal?,
+        lowTokens: [LowConfidenceToken]
+    )
     case speakers(segments: [SpeakerTurnPayload], count: Int)
     case warning(code: String, message: String)
     case done(durationSec: Decimal)
@@ -22,8 +28,16 @@ enum Event {
             return ["type": "model_download", "progress": progress]
         case let .progress(stage, pct):
             return ["type": "progress", "stage": stage, "pct": pct]
-        case let .segment(start, end, text):
-            return ["type": "segment", "start": start, "end": end, "text": text]
+        case let .segment(start, end, text, confidence, lowTokens):
+            // `confidence` and `lowTokens` are omitted entirely rather than sent
+            // as null/[] when the engine reported no confidences, so a consumer
+            // can distinguish "not measured" from "measured as clean". The
+            // server's schema marks both optional for the same reason (and so a
+            // helper binary predating this feature still parses).
+            var json: [String: Any] = ["type": "segment", "start": start, "end": end, "text": text]
+            if let confidence { json["confidence"] = confidence }
+            if !lowTokens.isEmpty { json["lowTokens"] = lowTokens.map(\.json) }
+            return json
         case let .speakers(segments, count):
             return ["type": "speakers", "segments": segments.map(\.json), "count": count]
         case let .warning(code, message):

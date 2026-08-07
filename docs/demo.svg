@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="322" viewBox="0 0 760 322" role="img" aria-label="Terminal showing mac-transcriber transcribing a 43-minute recording, identifying speakers, and writing transcript files">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="346" viewBox="0 0 760 346" role="img" aria-label="Terminal showing mac-transcriber transcribing a 43-minute recording, identifying speakers, and writing transcript and review files">
   <title>mac-transcriber running on a 43-minute panel recording</title>
 
-  <rect width="760" height="322" rx="10" fill="#14161a"/>
+  <rect width="760" height="346" rx="10" fill="#14161a"/>
   <path d="M0 10a10 10 0 0 1 10-10h740a10 10 0 0 1 10 10v20H0z" fill="#1d2026"/>
   <circle cx="20" cy="15" r="5.5" fill="#e06c60"/>
   <circle cx="38" cy="15" r="5.5" fill="#e0a458"/>
@@ -23,8 +23,9 @@
     <text x="20" y="202" fill="#56b6c2">  ~/recordings/Panel/transcript.txt<tspan fill="#6f7681">   ← readable</tspan></text>
     <text x="20" y="224" fill="#56b6c2">  ~/recordings/Panel/transcript.json</text>
     <text x="20" y="246" fill="#56b6c2">  ~/recordings/Panel/transcript.srt</text>
+    <text x="20" y="268" fill="#56b6c2">  ~/recordings/Panel/review.md<tspan fill="#6f7681">          ← 93 to check</tspan></text>
 
-    <text x="20" y="284" fill="#6f7681">  [12:43] <tspan fill="#e0a458">S2</tspan>  Sure — I have been building distributed systems</text>
-    <text x="20" y="304" fill="#6f7681">              for about twelve years now.</text>
+    <text x="20" y="308" fill="#6f7681">  [12:43] <tspan fill="#e0a458">S2</tspan>  Sure — I have been building distributed systems</text>
+    <text x="20" y="328" fill="#6f7681">              for about twelve years now.</text>
   </g>
 </svg>

@@ -13,7 +13,7 @@ a blog article/guide" step (not built here) — a flat, clean `text` field for
 prose quality, plus timestamped `segments` for citing the source media.
 
 <p align="center">
-  <img src="docs/demo.svg" alt="Terminal showing mac-transcriber transcribing a 43-minute recording with a live progress bar, identifying 5 speakers, and writing transcript.txt, .json and .srt beside the media file" width="760">
+  <img src="docs/demo.svg" alt="Terminal showing mac-transcriber transcribing a 43-minute recording with a live progress bar, identifying 5 speakers, and writing transcript.txt, .json, .srt and review.md beside the media file" width="760">
 </p>
 
 > **Status:** a personal project, shared in case it's useful. It works and it's
@@ -38,7 +38,8 @@ recordings/
 └── Panel/
     ├── transcript.txt    ← readable, speaker-labelled prose
     ├── transcript.json   ← timestamped segments + metadata
-    └── transcript.srt    ← subtitles
+    ├── transcript.srt    ← subtitles
+    └── review.md         ← the spots worth double-checking
 ```
 
 Roughly **60× realtime** on Apple silicon: a 43-minute recording finishes in
@@ -72,6 +73,41 @@ piped or scripted runs never block, and `--no-prompt` disables the question.
 
 The HTTP API takes the same hints as `speakers` / `minSpeakers` /
 `maxSpeakers` on `POST /jobs`.
+
+### Know where the transcript is shaky
+
+Every run writes a `review.md` listing the places the engine was least sure of,
+worst first — typically a few dozen spots per hour, each with a timestamp, the
+sentence it sits in, and the engine's own runner-up guesses:
+
+```markdown
+### 28:36 · S2 — `then` (0.159)
+
+> Like, a contract is only as good as it is enforceable, and if it costs you
+> more to sue someone, **then** you hope to get back.
+
+Also considered: `someone than`, `someone, than`
+```
+
+That one is a real error, and the correct word is sitting in the alternatives.
+
+It exists because the obvious quality check does not work: SpeechAnalyzer is
+**deterministic**, so transcribing a file repeatedly and diffing the runs finds
+nothing. Measured over five runs across two files, output is byte-identical —
+including a byte-identical reproduction of a known diarization defect. A
+decoder that is confidently wrong is wrong the same way every time, so
+self-consensus cannot see it. Per-word confidence can.
+
+Two caveats worth keeping in mind:
+
+- A clean `review.md` is a statement about the model's certainty, not a
+  guarantee of accuracy. Confident errors look exactly like correct output.
+- The alternatives are hints, not corrections. Sometimes they contain the right
+  answer; often they do not.
+
+Tuning lives in [`server/src/review.ts`](server/src/review.ts) — the confidence
+threshold, the filler-word filter, and how many entries to show. Full
+measurements: [docs/2026-08-07-repeat-run-determinism.md](docs/2026-08-07-repeat-run-determinism.md).
 
 ## What it is
 
@@ -296,7 +332,14 @@ never a `503`.
   },
   "text": "Full transcript as clean, punctuated prose...",
   "segments": [
-    { "id": 0, "start": 0.0, "end": 1.5, "text": "Sentence-level segment.", "speaker": "S1" }
+    {
+      "id": 0,
+      "start": 0.0,
+      "end": 1.5,
+      "text": "Sentence-level segment.",
+      "speaker": "S1",
+      "confidence": 0.973   // mean per-word confidence; null if unmeasured
+    }
   ]
 }
 ```
@@ -307,6 +350,13 @@ when diarization succeeds, `null` when it's disabled or failed —
 no detectable speech) is not an error: the job still completes, the
 transcript is delivered (possibly empty), and the reason lands in the job's
 `warnings[]`.
+
+`confidence` is the **mean** of the sentence's per-word scores, not the
+minimum — on real audio the minimum is held by function words and disfluencies
+(measured floor tokens on a 43-minute recording: `their` at 0.001, `the` at
+0.031), so a min-based score would render almost every sentence as near-zero.
+An article-generation step can use it to weigh how much to assert from a given
+sentence; the per-word detail behind a low score lives in `review.md`.
 
 Supported input extensions: `mp4 mov m4v mp3 m4a wav aiff aif caf`. Video
 containers work directly through `AVAudioFile` on macOS 26 — no ffmpeg.

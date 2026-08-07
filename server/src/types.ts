@@ -21,11 +21,33 @@ export const ProgressEvent = z.object({
   pct: z.number(),
 });
 
+/**
+ * One low-confidence word, as reported by the helper (spec addendum
+ * 2026-08-07). `alternatives` belong to the SpeechTranscriber `Result` this
+ * word came from — a phrase-sized chunk that need not align with sentence
+ * boundaries — so they are carried per-word rather than per-segment.
+ */
+export const LowConfidenceToken = z.object({
+  text: z.string(),
+  start: z.number(),
+  confidence: z.number(),
+  alternatives: z.array(z.string()),
+});
+export type LowConfidenceToken = z.infer<typeof LowConfidenceToken>;
+
 export const SegmentEvent = z.object({
   type: z.literal("segment"),
   start: z.number(),
   end: z.number(),
   text: z.string(),
+  /**
+   * Mean per-word confidence for this sentence. Optional, and absent rather
+   * than null when the engine reported none — which also keeps a helper binary
+   * predating this feature parseable.
+   */
+  confidence: z.number().optional(),
+  /** Words below the helper's capture threshold; absent when there are none. */
+  lowTokens: z.array(LowConfidenceToken).optional(),
 });
 
 export const SpeakerTurn = z.object({
@@ -122,6 +144,14 @@ export const JobSegment = z.object({
   start: z.number(),
   end: z.number(),
   text: z.string(),
+  /**
+   * Mean per-word confidence, and the words that fell below the helper's
+   * capture threshold. Both default rather than being required so job.json
+   * files written before this feature still validate on `JobStore.init()` —
+   * without the defaults those records fail parsing and are silently dropped.
+   */
+  confidence: z.number().nullable().default(null),
+  lowTokens: z.array(LowConfidenceToken).default([]),
 });
 export type JobSegment = z.infer<typeof JobSegment>;
 

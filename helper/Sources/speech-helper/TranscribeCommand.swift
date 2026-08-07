@@ -12,6 +12,15 @@ import Speech
 /// progress, no `speakers` event. Diarization failures never fail the job:
 /// any error is reported as a `warning{code:"diarizationFailed"}` and the job
 /// still completes with a normal `done`.
+/// What the results-consumer task hands back: the concatenated transcript plus
+/// the per-`Result` alternatives that concatenation would otherwise discard.
+struct TranscriptionOutput {
+    let transcript: AttributedString
+    let alternatives: [ResultAlternatives]
+
+    static let empty = TranscriptionOutput(transcript: AttributedString(""), alternatives: [])
+}
+
 struct TranscribeCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "transcribe",
@@ -47,7 +56,7 @@ struct TranscribeCommand: AsyncParsableCommand {
         // analyzeSequence/finalizeAndFinish throws, this task is still live
         // and could otherwise emit a stray `progress` line after the final
         // `error` event.
-        var resultsTask: Task<AttributedString, Error>?
+        var resultsTask: Task<TranscriptionOutput, Error>?
         defer { resultsTask?.cancel() }
 
         do {
@@ -78,11 +87,17 @@ struct TranscribeCommand: AsyncParsableCommand {
             }
             try await AssetInventory.reserve(locale: resolvedLocale)
 
+            // `.transcriptionConfidence` and `.alternativeTranscriptions` drive
+            // the review list (spec addendum 2026-08-07). Both are requested
+            // unconditionally: measured on a 43-minute recording, enabling them
+            // leaves the transcript text byte-identical (44,242 characters both
+            // ways), so there is no accuracy or output reason to make them
+            // opt-in. See docs/2026-08-07-repeat-run-determinism.md.
             let transcriber = SpeechTranscriber(
                 locale: resolvedLocale,
                 transcriptionOptions: [],
-                reportingOptions: [],
-                attributeOptions: [.audioTimeRange]
+                reportingOptions: [.alternativeTranscriptions],
+                attributeOptions: [.audioTimeRange, .transcriptionConfidence]
             )
             let modules: [any SpeechModule] = [transcriber]
 
@@ -102,23 +117,37 @@ struct TranscribeCommand: AsyncParsableCommand {
 
             // Results consumer task MUST start before driving the analyzer,
             // or results are dropped (spec §4 item 4).
-            let task = Task<AttributedString, Error> {
+            //
+            // Alternatives are collected here, alongside the transcript, because
+            // they are a property of each `Result` and are gone once results are
+            // concatenated into one AttributedString. Each is stored with its
+            // own time range so a low-confidence word can later be matched back
+            // to the alternatives of the Result it actually came from.
+            let task = Task<TranscriptionOutput, Error> {
                 var transcript = AttributedString("")
+                var alternatives: [ResultAlternatives] = []
                 for try await result in transcriber.results {
                     transcript.append(result.text)
+                    if !result.alternatives.isEmpty {
+                        alternatives.append(ResultAlternatives(
+                            start: result.range.start.seconds,
+                            end: result.range.end.seconds,
+                            options: result.alternatives.map { String($0.characters) }
+                        ))
+                    }
                     if durationSec > 0 {
                         let pct = min(max(result.resultsFinalizationTime.seconds / durationSec, 0), 1)
                         EventEmitter.shared.emit(.progress(stage: "transcribe", pct: roundedToMillisecond(pct)))
                     }
                 }
-                return transcript
+                return TranscriptionOutput(transcript: transcript, alternatives: alternatives)
             }
             resultsTask = task
 
-            let transcript: AttributedString
+            let output: TranscriptionOutput
             if let lastSample = try await analyzer.analyzeSequence(from: prepared.audioFile) {
                 try await analyzer.finalizeAndFinish(through: lastSample)
-                transcript = try await task.value
+                output = try await task.value
             } else {
                 // analyzeSequence returned nil: the file had no audio to feed
                 // the analyzer (e.g. zero-length/empty). This is a documented,
@@ -134,11 +163,17 @@ struct TranscribeCommand: AsyncParsableCommand {
                 // otherwise turn this into a spurious `error{code:"unknown"}`.
                 await analyzer.cancelAndFinishNow()
                 task.cancel()
-                transcript = (try? await task.value) ?? AttributedString("")
+                output = (try? await task.value) ?? TranscriptionOutput.empty
             }
 
-            for segment in transcript.sentenceSegments() {
-                EventEmitter.shared.emit(.segment(start: segment.start, end: segment.end, text: segment.text))
+            for segment in output.transcript.sentenceSegments(resultAlternatives: output.alternatives) {
+                EventEmitter.shared.emit(.segment(
+                    start: segment.start,
+                    end: segment.end,
+                    text: segment.text,
+                    confidence: segment.confidence,
+                    lowTokens: segment.lowTokens
+                ))
             }
 
             EventEmitter.shared.emit(.progress(stage: "transcribe", pct: 1.0))

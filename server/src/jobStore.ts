@@ -3,6 +3,7 @@ import path from "node:path";
 import type { JobRecord, SpeakerHint } from "./types";
 import { JobRecord as JobRecordSchema } from "./types";
 import { assembleTranscript, renderReadableText, renderSrt } from "./transcript";
+import { renderReview } from "./review";
 
 const INTERRUPTED_MESSAGE = "Server restarted while the job was in progress.";
 
@@ -158,6 +159,16 @@ export class JobStore {
       fs.writeFileSync(txtTmpPath, txt);
       fs.renameSync(txtTmpPath, txtPath);
 
+      // The uncertainty-ranked review list. Written unconditionally, including
+      // the "nothing flagged" case — an absent file is ambiguous between "clean"
+      // and "not generated", and the difference matters to someone deciding
+      // whether to trust the transcript.
+      const review = renderReview(job, transcript);
+      const reviewPath = path.join(dir, "review.md");
+      const reviewTmpPath = path.join(dir, `.review.md.${process.pid}.tmp`);
+      fs.writeFileSync(reviewTmpPath, review);
+      fs.renameSync(reviewTmpPath, reviewPath);
+
       // Mirror into the human-facing folder beside the media file. Failures
       // here are reported but must not lose the job-directory copy above,
       // which has already landed.
@@ -167,6 +178,7 @@ export class JobStore {
           ["transcript.json", JSON.stringify(transcript, null, 2)],
           ["transcript.srt", srt + "\n"],
           ["transcript.txt", txt],
+          ["review.md", review],
         ] as const) {
           const dest = path.join(job.outputDir, name);
           const tmp = path.join(job.outputDir, `.${name}.${process.pid}.tmp`);

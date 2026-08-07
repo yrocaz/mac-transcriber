@@ -35,8 +35,8 @@ describe("HelperSupervisor: happy path", () => {
     expect(finished.progress).toBe(1);
     expect(finished.durationSec).toBe(10);
     expect(finished.segments).toEqual([
-      { start: 0, end: 2, text: "Hello there." },
-      { start: 2, end: 4, text: "General Kenobi." },
+      { start: 0, end: 2, text: "Hello there.", confidence: null, lowTokens: [] },
+      { start: 2, end: 4, text: "General Kenobi.", confidence: null, lowTokens: [] },
     ]);
     expect(finished.speakers).toEqual({
       count: 2,
@@ -60,7 +60,9 @@ describe("HelperSupervisor: happy path", () => {
     expect(finished.status).toBe("done");
     expect(finished.progress).toBe(1);
     expect(finished.speakers).toBeNull();
-    expect(finished.segments).toEqual([{ start: 0, end: 2, text: "Solo segment." }]);
+    expect(finished.segments).toEqual([
+      { start: 0, end: 2, text: "Solo segment.", confidence: null, lowTokens: [] },
+    ]);
   });
 
   it("persists warning events into warnings[] and still completes the job", async () => {
@@ -229,8 +231,8 @@ describe("HelperSupervisor: Critical 1 — diarization keepalive vs. the inactiv
     expect(fs.existsSync(transcriptPath)).toBe(true);
     const transcript = JSON.parse(fs.readFileSync(transcriptPath, "utf8"));
     expect(transcript.segments).toEqual([
-      { id: 0, start: 0, end: 2, text: "Hello there.", speaker: null },
-      { id: 1, start: 2, end: 4, text: "General Kenobi.", speaker: null },
+      { id: 0, start: 0, end: 2, text: "Hello there.", speaker: null, confidence: null },
+      { id: 1, start: 2, end: 4, text: "General Kenobi.", speaker: null, confidence: null },
     ]);
 
     const srtPath = path.join(dataDir, "jobs", "j14", "transcript.srt");
@@ -266,8 +268,8 @@ describe("HelperSupervisor: Critical 1 — diarization keepalive vs. the inactiv
     expect(finished.status).toBe("done");
     expect(finished.progress).toBe(1);
     expect(finished.segments).toEqual([
-      { start: 0, end: 2, text: "Hello there." },
-      { start: 2, end: 4, text: "General Kenobi." },
+      { start: 0, end: 2, text: "Hello there.", confidence: null, lowTokens: [] },
+      { start: 2, end: 4, text: "General Kenobi.", confidence: null, lowTokens: [] },
     ]);
   }, 10_000);
 });

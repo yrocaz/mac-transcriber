@@ -132,21 +132,46 @@ automatically. Garbled proper nouns and terms of art are the failure mode that
 most damages a derived article and that a reader most notices — and it is
 exactly what these flags found.
 
-## Recommendation
+## Recommendation — implemented 2026-08-07
 
-Do not build repeat-run comparison. If uncertainty-guided review is wanted,
-the shape is:
+Repeat-run comparison was not built. Uncertainty-guided review was, in three
+parts:
 
-1. Pass `.transcriptionConfidence` and `.alternativeTranscriptions` when
-   constructing `SpeechTranscriber`.
-2. Carry per-segment confidence through the NDJSON bridge into
-   `transcript.json`.
-3. Emit a `review.md` alongside the transcripts listing low-confidence content
-   spans with timestamps and the model's alternatives, sorted worst-first.
+1. `SpeechTranscriber` now requests `.transcriptionConfidence` and
+   `.alternativeTranscriptions`. Verified output-neutral before enabling: the
+   transcript text is byte-identical with and without them (44,242 characters
+   both ways on `Panel.wav`), so they are on unconditionally rather than behind
+   a flag.
+2. Per-sentence mean confidence flows through the NDJSON bridge into
+   `transcript.json`; per-word detail and alternatives ride along on the
+   `segment` event as `lowTokens`.
+3. `review.md` is written beside the other transcript files, ranking
+   low-confidence content words worst-first with timestamps, speaker, containing
+   sentence, and the engine's alternatives.
 
-Step 3 serves the project's stated end goal directly: an LLM drafting an
-article from the transcript can be handed the uncertainty list and told to
-avoid asserting anything resting on a flagged span.
+On this file the result is **93 spots across 43 minutes** — a real review pass.
+Design decisions and the NDJSON schema are recorded in the spec's
+"Addendum 2026-08-07"; the review policy (threshold, filler filter, alternative
+presentation) lives in `server/src/review.ts` with unit coverage in
+`server/test/unit/review.test.ts`.
+
+This serves the project's stated end goal directly: an article-generation step
+can be handed the uncertainty list and told not to assert anything resting on a
+flagged span.
+
+A representative entry from the real run, showing why the alternatives are worth
+carrying:
+
+```markdown
+### 28:36 · S2 — `then` (0.159)
+
+> Like, a contract is only as good as it is enforceable, and if it costs you
+> more to sue someone, **then** you hope to get back.
+
+Also considered: `someone than`, `someone, than`
+```
+
+The correct word is "than", and it is sitting in the runner-up.
 
 **Not pursued, recorded for completeness:** genuine output diversity would
 require either perturbing the input (resampling, gain, locale variant) or

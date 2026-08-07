@@ -12,6 +12,14 @@ export const TranscriptSegment = z.object({
   end: z.number(),
   text: z.string(),
   speaker: z.string().nullable(),
+  /**
+   * Mean per-word confidence for this sentence, or null when the engine
+   * reported none. Published so a downstream consumer — notably an
+   * article-generation step — can weigh how much to trust a given sentence
+   * without re-reading the audio. The per-word detail behind a low score lives
+   * in review.md, not here, to keep transcript.json readable.
+   */
+  confidence: z.number().nullable(),
 });
 export type TranscriptSegment = z.infer<typeof TranscriptSegment>;
 
@@ -108,6 +116,16 @@ function deriveDiarizationStatus(job: JobRecord): "ok" | "failed" | "disabled" {
 // Transcript assembly (pure function; no fs, no clock)
 // ---------------------------------------------------------------------------
 
+/**
+ * The empty-segment filter, exported so review rendering can walk the job's raw
+ * segments in lockstep with the assembled transcript. Both must drop exactly the
+ * same segments or the two fall out of alignment by an index — hence one
+ * definition rather than two identical predicates.
+ */
+export function hasText(segment: { text: string }): boolean {
+  return segment.text.trim().length > 0;
+}
+
 export function assembleTranscript(job: JobRecord): Transcript {
   const diarizationStatus = deriveDiarizationStatus(job);
 
@@ -125,12 +143,18 @@ export function assembleTranscript(job: JobRecord): Transcript {
       end: roundMs(seg.end),
       text: seg.text.trim(),
       speaker,
+      // `== null` rather than `=== null`: zod's default fills this in for
+      // records that went through parsing, but a record constructed in-process
+      // can carry `undefined`, and `roundMs(undefined)` is NaN — which
+      // serializes into transcript.json as `null` only by accident and compares
+      // equal to nothing.
+      confidence: seg.confidence == null ? null : roundMs(seg.confidence),
     };
   });
 
   // Drop empty segments and reassign sequential ids after filtering.
   const nonEmptySegments = segments
-    .filter((s) => s.text.length > 0)
+    .filter(hasText)
     .map((seg, idx) => ({ ...seg, id: idx }));
   const text = nonEmptySegments.map((s) => s.text).join(" ");
 
