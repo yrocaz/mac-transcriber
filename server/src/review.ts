@@ -24,8 +24,15 @@ import { hasText, type Transcript, type TranscriptSegment } from "./transcript";
  * comfortably includes both errors verified by hand ("newth" at 0.185, standing
  * in for "fine-tooth", and the misheard name "Crom" at 0.276).
  *
- * The helper captures everything below 0.9, so this can be raised toward that
- * ceiling without rebuilding the Swift binary.
+ * The helper captures everything below 0.9 (`lowConfidenceCaptureThreshold` in
+ * SentenceSegmenter.swift), so this can be raised toward that ceiling without
+ * rebuilding the Swift binary.
+ *
+ * CEILING: values above 0.9 return exactly the same set as 0.9 — the helper
+ * never sent the rest, and nothing here can tell the difference between "no
+ * word scored 0.93" and "words scoring 0.93 were dropped upstream". Reviewing
+ * above 0.9 means raising the helper's capture threshold and re-running the
+ * job, not just editing this number.
  */
 export const REVIEW_THRESHOLD = 0.5;
 
