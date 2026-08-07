@@ -188,3 +188,40 @@ for p in sys.argv[1:]:
     print(f\"{m['speakerCount']}  {len(d['segments']):>5} segs  {p}{flag}\")
 " {} +
 ```
+
+## A push was rejected by the pre-push hook
+
+That is the hook doing its job — CI here cannot block anything, so this is the
+only gate. The message names the command to run:
+
+```sh
+npm --prefix server run format   # fixes formatting in place
+npm --prefix server run lint     # full lint output
+npm --prefix server test         # full test output
+```
+
+Emergency bypass is `git push --no-verify`. Use it knowing nothing else will
+stop a broken commit reaching `main`.
+
+If the hook doesn't run at all, it isn't installed:
+
+```sh
+git config core.hooksPath        # expect: .githooks
+npm --prefix server install      # the `prepare` script installs it
+```
+
+## `swift test` passes but nothing ran
+
+Real, and it looks exactly like success: on a Command Line Tools-only
+toolchain SwiftPM builds the suite and then silently declines to run it —
+**exit 0, no output, even with a deliberately failing test present**.
+
+Always use the wrapper, which passes the swift-testing search paths on the
+command line:
+
+```sh
+cd helper && ./scripts/swift-test.sh
+```
+
+A real run ends with a line like `Test run with 14 tests in 3 suites passed`.
+If you see only `Build complete!`, nothing was executed.

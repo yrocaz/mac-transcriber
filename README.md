@@ -481,6 +481,77 @@ Supported input extensions: `mp4 mov m4v mp3 m4a wav aiff aif caf`. Video
 containers work directly through `AVAudioFile` on macOS 26 — no ffmpeg.
 `mkv`/`webm`/`ogg` are out of scope (unsupported by AVFoundation).
 
+## Checks
+
+Five gates, all runnable locally and all enforced two ways — a pre-push hook
+and GitHub Actions:
+
+```bash
+cd server
+npm run format:check   # prettier
+npm run lint           # eslint (typescript-eslint recommended)
+npm run typecheck      # tsc --noEmit
+npm test               # vitest unit suite
+npm run build          # tsc emit
+
+# Swift side, from the repo root:
+swift format lint --strict --recursive helper/Sources helper/Tests
+cd helper && swift build -c release && ./scripts/swift-test.sh
+```
+
+**The pre-push hook is the gate that matters.** This repo has no branch
+protection, so CI reports after the fact and cannot block anything. The hook
+runs all of the above in about 11 seconds and refuses the push on failure. It
+installs itself via the `prepare` script on `npm install` — including the
+install `./transcribe` does on first run — so you get it without doing
+anything. Emergency bypass is `git push --no-verify`.
+
+The Swift steps are skipped when no toolchain is on `PATH`, so editing docs on
+a machine without Swift isn't blocked. CI checks them regardless.
+
+### Formatting and linting
+
+- **Prettier** with a near-default config: `printWidth: 100`, double quotes.
+  Both settings encode what the codebase already did by hand, so adopting it
+  reformatted code rather than restyling it. **Markdown is excluded** — see
+  `server/.prettierignore` for why.
+- **ESLint** with `typescript-eslint` **recommended** (not `strict`), plus
+  `eslint-config-prettier` last so formatting belongs to Prettier alone. Three
+  rules are tuned to house idioms — non-null assertions, commented empty
+  catches, `no-console` — each with its reasoning inline in
+  `server/eslint.config.mjs`.
+- **swift-format**, which ships with the Swift 6 toolchain (nothing to
+  install). `.swift-format` at the repo root sets `lineLength: 100` and
+  4-space indentation to match the existing Swift; at its 2-space default it
+  reported 787 findings that were purely a config mismatch, not real drift.
+  It does not reflow comments, so the explanation-dense files are unaffected.
+
+### CI
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs two jobs on
+`macos-latest`, split so a Swift toolchain problem can't mask a TypeScript
+regression.
+
+Both jobs need macOS, for reasons worth knowing:
+
+- The **server** job, because `recover.test.ts` shells out to the real
+  `afconvert`. The rest of the unit suite is portable — the fake helper never
+  opens its input — but those tests are not.
+- The **helper** job, because `Package.swift` pins `.macOS(.v26)`.
+  `macos-latest` points at macOS 26 as of the June 2026 image migration.
+
+Two things the workflow deliberately does *not* do, both documented inline so
+nobody "fixes" them:
+
+- **It never runs `swift test` directly.** On a Command Line Tools-only
+  toolchain SwiftPM builds the suite and then silently declines to run it —
+  exit 0, zero output, even with a deliberately failing test present. A step
+  calling `swift test` would be a permanent false green. `scripts/swift-test.sh`
+  passes the swift-testing search paths on the command line, which is what
+  makes the runner execute.
+- **It never runs the E2E suite**, which needs the real helper, a first-use
+  model download over the network, and the generated fixtures below.
+
 ## Testing
 
 Two separate suites, matching the spec's split between fast fake-helper
@@ -512,10 +583,10 @@ the script generates and why the malformed MP3 isn't committed.
 
 ```
 $ npm test
- ✓ test/unit/hints.test.ts (17 tests)
- ✓ test/unit/config.test.ts (3 tests)
  ✓ test/unit/progress.test.ts (7 tests)
+ ✓ test/unit/config.test.ts (3 tests)
  ✓ test/unit/transcript.test.ts (25 tests)
+ ✓ test/unit/hints.test.ts (17 tests)
  ✓ test/unit/review.test.ts (19 tests)
  ✓ test/unit/tree.test.ts (10 tests)
  ✓ test/unit/cliRender.test.ts (19 tests)
@@ -523,11 +594,12 @@ $ npm test
  ✓ test/unit/jobStore.test.ts (10 tests)
  ✓ test/unit/recover.test.ts (9 tests)
  ✓ test/unit/runFile.test.ts (7 tests)
+ ✓ test/unit/cliMain.test.ts (11 tests)
  ✓ test/unit/routes.test.ts (23 tests)
  ✓ test/unit/runTree.test.ts (10 tests)
  ✓ test/unit/supervisor.test.ts (14 tests)
- Test Files  14 passed (14)
-      Tests  182 passed (182)
+ Test Files  15 passed (15)
+      Tests  193 passed (193)
 ```
 
 `npm run test:e2e` builds `speech-helper` automatically if the release

@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Pre-push hook — the authoritative local gate before code leaves the machine.
+#
+# Why this exists even though CI runs the same checks:
+# this repo has no branch protection, so CI is informational — it reports
+# after the fact and cannot block anything. The hook is the only gate that
+# actually prevents a broken push. It is also faster: no runner queue, and
+# "build" here is `tsc`, not a bundler.
+#
+# Auto-installed by the `prepare` script in server/package.json, which runs on
+# `npm install` — including the one ./transcribe does on first run.
+#
+# Bypass (emergency only): git push --no-verify
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+fail() {
+  echo ""
+  echo "  $1"
+  echo ""
+  exit 1
+}
+
+echo "Running pre-push checks…"
+echo ""
+
+echo "1/6 Format (prettier)"
+npm --prefix server run format:check --silent >/dev/null 2>&1 ||
+  fail "FORMAT FAILED — run 'npm --prefix server run format' before pushing."
+echo "    ok"
+
+echo "2/6 Lint (eslint)"
+npm --prefix server run lint --silent >/dev/null 2>&1 ||
+  fail "LINT FAILED — run 'npm --prefix server run lint' for full output."
+echo "    ok"
+
+echo "3/6 Typecheck (tsc)"
+npm --prefix server run typecheck --silent >/dev/null 2>&1 ||
+  fail "TYPECHECK FAILED — run 'npm --prefix server run typecheck' for errors."
+echo "    ok"
+
+echo "4/6 Tests (vitest, unit only)"
+npm --prefix server test --silent >/dev/null 2>&1 ||
+  fail "TESTS FAILED — run 'npm --prefix server test' for full output."
+echo "    ok"
+
+echo "5/6 Build (tsc emit)"
+npm --prefix server run build --silent >/dev/null 2>&1 ||
+  fail "BUILD FAILED — run 'npm --prefix server run build' for errors."
+echo "    ok"
+
+# Swift is checked only when a toolchain is present. Someone editing docs or
+# TypeScript on a machine without Swift should not be blocked by it; CI covers
+# the case regardless.
+if command -v swift >/dev/null 2>&1; then
+  echo "6/6 Swift (format lint · build · tests)"
+  swift format lint --strict --recursive helper/Sources helper/Tests >/dev/null 2>&1 ||
+    fail "SWIFT FORMAT FAILED — run 'swift format --in-place --recursive helper/Sources helper/Tests'."
+  (cd helper && swift build -c release >/dev/null 2>&1) ||
+    fail "SWIFT BUILD FAILED — run 'cd helper && swift build -c release' for errors."
+  # NOT bare `swift test`: on a Command Line Tools-only toolchain it builds
+  # and then silently skips running, exiting 0 with a failing test present.
+  (cd helper && ./scripts/swift-test.sh >/dev/null 2>&1) ||
+    fail "SWIFT TESTS FAILED — run 'cd helper && ./scripts/swift-test.sh' for output."
+  echo "    ok"
+else
+  echo "6/6 Swift — skipped (no toolchain on PATH; CI still checks it)"
+fi
+
+echo ""
+echo "All checks passed. Pushing…"

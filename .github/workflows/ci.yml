@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same branch so old commits stop burning
+# minutes. This matters more here than on a typical repo: every job below
+# needs a macOS runner, which GitHub bills at 10x the Linux rate.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  server:
+    name: Server · Format · Lint · Typecheck · Tests · Build
+    # macOS, not ubuntu, for one concrete reason: recover.test.ts shells out to
+    # `afconvert` (the macOS built-in this project re-encodes damaged media
+    # with). The rest of the unit suite is portable — the fake helper never
+    # opens its input — but those tests are not.
+    runs-on: macos-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          # package.json declares engines.node >= 22. Developed on 25.
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Format
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # The unit suite only. `npm run test:e2e` is deliberately NOT run here:
+      # it needs the real Swift helper, a first-use SpeechAnalyzer model
+      # download over the network, and the gitignored fixtures that
+      # ./scripts/make-fixtures.sh generates. Its absence is intentional —
+      # please don't "fix" it by adding a step that would skip silently.
+      - name: Tests (unit — fake helper, no network)
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  helper:
+    name: Helper · Swift format · Build · Tests
+    # Package.swift pins .macOS(.v26); macos-latest points at macOS 26.
+    runs-on: macos-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: helper
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Swift version
+        run: swift --version
+
+      # swift-format ships with the Swift 6 toolchain, so there is nothing to
+      # install. Config lives in .swift-format at the repo root.
+      - name: Format
+        run: swift format lint --strict --recursive Sources Tests
+
+      - name: Build
+        run: swift build -c release
+
+      # NOT bare `swift test`. On a Command Line Tools-only toolchain SwiftPM
+      # builds the suite and then silently declines to run it — exit 0, zero
+      # output, even with a deliberately failing test present. A CI step
+      # calling `swift test` would be a permanent false green. The wrapper
+      # passes the swift-testing search paths on the command line, which is
+      # what makes the runner actually execute. See the script's header.
+      - name: Tests
+        run: ./scripts/swift-test.sh
