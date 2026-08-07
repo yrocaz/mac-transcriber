@@ -28,7 +28,10 @@ function setup() {
   // sleeps 0.15s deliberately, and FAST_TIMEOUTS' 400ms inactivity budget
   // loses that race once the whole suite runs 14 files in parallel on a
   // cold machine. Nothing here is testing timeout behaviour.
-  const supervisor = new HelperSupervisor({ helperPath: FAKE_HELPER_PATH, timeouts: DEFAULT_TIMEOUTS });
+  const supervisor = new HelperSupervisor({
+    helperPath: FAKE_HELPER_PATH,
+    timeouts: DEFAULT_TIMEOUTS,
+  });
   const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), "runtree-out-"));
   return { store, supervisor, outRoot };
 }
@@ -77,7 +80,9 @@ describe("runTree", () => {
 
     expect(summary.skipped).toBe(1);
     expect(summary.done).toBe(1);
-    expect(fs.readFileSync(path.join(outRoot, "basic", "transcript.txt"), "utf8")).toBe("already done");
+    expect(fs.readFileSync(path.join(outRoot, "basic", "transcript.txt"), "utf8")).toBe(
+      "already done",
+    );
   });
 
   it("reprocesses everything under --force", async () => {
@@ -90,7 +95,9 @@ describe("runTree", () => {
 
     expect(summary.skipped).toBe(0);
     expect(summary.done).toBe(1);
-    expect(fs.readFileSync(path.join(outRoot, "basic", "transcript.txt"), "utf8")).toContain("Hello there.");
+    expect(fs.readFileSync(path.join(outRoot, "basic", "transcript.txt"), "utf8")).toContain(
+      "Hello there.",
+    );
   });
 
   it("keeps going after a failure and reports which file failed", async () => {
@@ -165,7 +172,11 @@ describe("runTree", () => {
 
   it("reports an empty tree without error", async () => {
     const { store, supervisor, outRoot } = setup();
-    const summary = await runTree(supervisor, store, { ...base, root: makeSourceTree([]), outRoot });
+    const summary = await runTree(supervisor, store, {
+      ...base,
+      root: makeSourceTree([]),
+      outRoot,
+    });
     expect(summary).toMatchObject({ total: 0, done: 0, failed: 0, skipped: 0 });
   });
 });

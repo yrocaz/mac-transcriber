@@ -87,7 +87,9 @@ describe("matchHint", () => {
 
   it("routes each archive shape to the flags it needs", () => {
     expect(matchHint(rules, "4th affordable edit/Panel.wav")!.flags.speakers).toBe(5);
-    expect(matchHint(rules, "24 Year In Review - Edit/Kim Winters Market Update.wav")!.flags).toEqual({
+    expect(
+      matchHint(rules, "24 Year In Review - Edit/Kim Winters Market Update.wav")!.flags,
+    ).toEqual({
       speakers: null,
       minSpeakers: 1,
       maxSpeakers: 2,

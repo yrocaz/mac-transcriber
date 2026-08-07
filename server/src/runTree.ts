@@ -183,13 +183,29 @@ export async function runTree(
         outcome = { relativePath, outputDir, status: "done", recovered, speakerCount, error: null };
         log(`done  ${relativePath}${recovered ? " (recovered via re-encode)" : ""}`);
       } else {
-        const error = job.error ? `${job.error.code}: ${job.error.message}` : "job did not complete";
-        outcome = { relativePath, outputDir, status: "failed", recovered: false, speakerCount: null, error };
+        const error = job.error
+          ? `${job.error.code}: ${job.error.message}`
+          : "job did not complete";
+        outcome = {
+          relativePath,
+          outputDir,
+          status: "failed",
+          recovered: false,
+          speakerCount: null,
+          error,
+        };
         log(`FAIL  ${relativePath} — ${error}`);
       }
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
-      outcome = { relativePath, outputDir, status: "failed", recovered: false, speakerCount: null, error };
+      outcome = {
+        relativePath,
+        outputDir,
+        status: "failed",
+        recovered: false,
+        speakerCount: null,
+        error,
+      };
       log(`FAIL  ${relativePath} — ${error}`);
     }
 

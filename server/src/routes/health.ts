@@ -11,7 +11,6 @@ export function registerHealthRoute(app: FastifyInstance, deps: HealthRouteDeps)
 
   app.get("/health", async (_request, reply) => {
     let status: "ok" | "degraded" = "ok";
-    let statusResponse = null;
 
     // Check if helper binary exists and is executable.
     try {
@@ -25,7 +24,7 @@ export function registerHealthRoute(app: FastifyInstance, deps: HealthRouteDeps)
     }
 
     // Attempt to get helper status.
-    statusResponse = await getHelperStatus(helperPath);
+    const statusResponse = await getHelperStatus(helperPath);
     if (!statusResponse) {
       status = "degraded";
     }

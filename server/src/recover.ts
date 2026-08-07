@@ -56,11 +56,24 @@ export async function reencodeToWav(source: string): Promise<string> {
   // self-explanatory to whoever finds it in $TMPDIR.
   const target = path.join(dir, `recovered-${path.basename(source, path.extname(source))}.wav`);
   try {
-    await execFileAsync("afconvert", ["-f", "WAVE", "-d", "LEI16@44100", "-c", "1", source, target]);
+    await execFileAsync("afconvert", [
+      "-f",
+      "WAVE",
+      "-d",
+      "LEI16@44100",
+      "-c",
+      "1",
+      source,
+      target,
+    ]);
   } catch (err) {
     fs.rmSync(dir, { recursive: true, force: true });
     const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(`afconvert could not re-encode ${path.basename(source)}: ${detail}`);
+    // `cause` keeps afconvert's own exit status and stderr reachable; the
+    // message alone loses which of the many ways it can fail actually happened.
+    throw new Error(`afconvert could not re-encode ${path.basename(source)}: ${detail}`, {
+      cause: err,
+    });
   }
   return target;
 }

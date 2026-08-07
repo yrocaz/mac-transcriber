@@ -76,16 +76,70 @@ export const MIN_WORD_LENGTH = 3;
  */
 export const REVIEW_STOPWORDS = new Set([
   // disfluencies
-  "uh", "um", "mm", "hmm", "ah", "oh", "er", "yeah", "okay", "ok", "mhm",
+  "uh",
+  "um",
+  "mm",
+  "hmm",
+  "ah",
+  "oh",
+  "er",
+  "yeah",
+  "okay",
+  "ok",
+  "mhm",
   // articles, conjunctions, prepositions
-  "the", "and", "but", "for", "nor", "yet", "with", "from", "into", "onto",
-  "than", "that", "this", "these", "those", "there", "their", "them", "they",
+  "the",
+  "and",
+  "but",
+  "for",
+  "nor",
+  "yet",
+  "with",
+  "from",
+  "into",
+  "onto",
+  "than",
+  "that",
+  "this",
+  "these",
+  "those",
+  "there",
+  "their",
+  "them",
+  "they",
   // pronouns and auxiliaries
-  "you", "your", "our", "his", "her", "hers", "its", "was", "were", "been",
-  "are", "has", "had", "have", "will", "would", "could", "should", "can",
-  "did", "does", "not", "but",
+  "you",
+  "your",
+  "our",
+  "his",
+  "her",
+  "hers",
+  "its",
+  "was",
+  "were",
+  "been",
+  "are",
+  "has",
+  "had",
+  "have",
+  "will",
+  "would",
+  "could",
+  "should",
+  "can",
+  "did",
+  "does",
+  "not",
+  "but",
   // very common discourse filler
-  "just", "well", "know", "like", "really", "actually", "sort", "kind",
+  "just",
+  "well",
+  "know",
+  "like",
+  "really",
+  "actually",
+  "sort",
+  "kind",
 ]);
 
 export interface ReviewItem {
@@ -160,7 +214,11 @@ export function presentableAlternatives(raw: string[]): string[] {
   for (const candidate of raw) {
     const trimmed = candidate.trim();
     if (trimmed.length === 0 || trimmed.length > MAX_ALTERNATIVE_CHARS) continue;
-    const key = trimmed.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+    const key = trimmed
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
     if (key.length === 0 || seen.has(key)) continue;
     seen.add(key);
     out.push(trimmed);
@@ -189,9 +247,7 @@ function formatClock(seconds: number): string {
 function highlight(sentence: string, word: string): string {
   const index = sentence.indexOf(word);
   if (index === -1) return sentence;
-  return (
-    sentence.slice(0, index) + `**${word}**` + sentence.slice(index + word.length)
-  );
+  return sentence.slice(0, index) + `**${word}**` + sentence.slice(index + word.length);
 }
 
 export function renderReview(job: JobRecord, transcript: Transcript): string {

@@ -76,7 +76,9 @@ describe("mirroredOutputDir", () => {
   });
 
   it("strips only the extension, preserving dots in the name", () => {
-    expect(mirroredOutputDir("/r", "/r/Sept 2023 - Edit 2.mp3", "/o")).toBe("/o/Sept 2023 - Edit 2");
+    expect(mirroredOutputDir("/r", "/r/Sept 2023 - Edit 2.mp3", "/o")).toBe(
+      "/o/Sept 2023 - Edit 2",
+    );
   });
 
   it("handles a file directly at the root", () => {

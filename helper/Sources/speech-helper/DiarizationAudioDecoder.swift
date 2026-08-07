@@ -41,7 +41,9 @@ enum DiarizationAudioDecoder {
                 frameCapacity: AVAudioFrameCount(audioFile.length)
             )
         else {
-            throw HelperError(code: "diarizationDecodeFailed", message: "Could not allocate an input buffer to decode audio for diarization.")
+            throw HelperError(
+                code: "diarizationDecodeFailed",
+                message: "Could not allocate an input buffer to decode audio for diarization.")
         }
         try audioFile.read(into: inputBuffer)
 
@@ -53,11 +55,15 @@ enum DiarizationAudioDecoder {
                 interleaved: false
             )
         else {
-            throw HelperError(code: "diarizationDecodeFailed", message: "Could not construct the 16 kHz mono target audio format.")
+            throw HelperError(
+                code: "diarizationDecodeFailed",
+                message: "Could not construct the 16 kHz mono target audio format.")
         }
 
         guard let converter = AVAudioConverter(from: sourceFormat, to: targetFormat) else {
-            throw HelperError(code: "diarizationDecodeFailed", message: "Could not create an audio converter for diarization input.")
+            throw HelperError(
+                code: "diarizationDecodeFailed",
+                message: "Could not create an audio converter for diarization input.")
         }
         converter.primeMethod = .none
 
@@ -69,16 +75,23 @@ enum DiarizationAudioDecoder {
         // hold across `AVAudioConverter` versions.
         let inputConsumed = Locked(false)
         var samples: [Float] = []
-        let estimatedCount = Int(Double(inputBuffer.frameLength) * (targetSampleRate / sourceFormat.sampleRate)) + 4096
+        let estimatedCount =
+            Int(Double(inputBuffer.frameLength) * (targetSampleRate / sourceFormat.sampleRate))
+            + 4096
         samples.reserveCapacity(estimatedCount)
 
         while true {
-            guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: 32_768) else {
-                throw HelperError(code: "diarizationDecodeFailed", message: "Could not allocate a conversion output buffer.")
+            guard
+                let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: 32_768)
+            else {
+                throw HelperError(
+                    code: "diarizationDecodeFailed",
+                    message: "Could not allocate a conversion output buffer.")
             }
 
             var conversionError: NSError?
-            let status = converter.convert(to: outputBuffer, error: &conversionError) { _, inputStatus in
+            let status = converter.convert(to: outputBuffer, error: &conversionError) {
+                _, inputStatus in
                 let alreadyConsumed = inputConsumed.exchange(true)
                 if alreadyConsumed {
                     inputStatus.pointee = .endOfStream
@@ -89,12 +102,17 @@ enum DiarizationAudioDecoder {
             }
 
             if let channelData = outputBuffer.floatChannelData, outputBuffer.frameLength > 0 {
-                samples.append(contentsOf: UnsafeBufferPointer(start: channelData[0], count: Int(outputBuffer.frameLength)))
+                samples.append(
+                    contentsOf: UnsafeBufferPointer(
+                        start: channelData[0], count: Int(outputBuffer.frameLength)))
             }
 
             switch status {
             case .error:
-                throw conversionError ?? HelperError(code: "diarizationDecodeFailed", message: "Audio conversion failed while decoding for diarization.")
+                throw conversionError
+                    ?? HelperError(
+                        code: "diarizationDecodeFailed",
+                        message: "Audio conversion failed while decoding for diarization.")
             case .endOfStream:
                 return samples
             case .haveData, .inputRanDry:

@@ -28,14 +28,18 @@ function fixture(name: string): string {
 
 function ensureHelperBuilt(): boolean {
   if (process.platform !== "darwin") {
-    console.warn("[e2e] Not running on macOS; SpeechAnalyzer/FluidAudio require macOS. Skipping E2E suite.");
+    console.warn(
+      "[e2e] Not running on macOS; SpeechAnalyzer/FluidAudio require macOS. Skipping E2E suite.",
+    );
     return false;
   }
   if (fs.existsSync(HELPER_PATH)) {
     return true;
   }
 
-  console.warn(`[e2e] ${HELPER_PATH} not found; building via \`swift build -c release\` in ${HELPER_DIR}...`);
+  console.warn(
+    `[e2e] ${HELPER_PATH} not found; building via \`swift build -c release\` in ${HELPER_DIR}...`,
+  );
   try {
     execFileSync("swift", ["build", "-c", "release"], {
       cwd: HELPER_DIR,
@@ -79,7 +83,9 @@ if (HELPER_AVAILABLE && !MALFORMED_MP3_AVAILABLE) {
       "(requires the source system MP3 to be present on this Mac).",
   );
 } else if (MALFORMED_MP3_AVAILABLE) {
-  malformedMp3Sidecar = JSON.parse(fs.readFileSync(MALFORMED_MP3_SIDECAR_PATH, "utf8")) as MalformedMp3Sidecar;
+  malformedMp3Sidecar = JSON.parse(
+    fs.readFileSync(MALFORMED_MP3_SIDECAR_PATH, "utf8"),
+  ) as MalformedMp3Sidecar;
 }
 
 describe.skipIf(!HELPER_AVAILABLE)("E2E: real speech-helper (macOS only)", () => {
@@ -97,7 +103,9 @@ describe.skipIf(!HELPER_AVAILABLE)("E2E: real speech-helper (macOS only)", () =>
 
     // Warm-up: run one diarized job first so a first-run model download
     // lands here, not inside a timed assertion below.
-    console.warn("[e2e] Warm-up run (first-run model download can take a while; subsequent runs are fast)...");
+    console.warn(
+      "[e2e] Warm-up run (first-run model download can take a while; subsequent runs are fast)...",
+    );
     const create = await built.app.inject({
       method: "POST",
       url: "/jobs",
@@ -124,7 +132,10 @@ describe.skipIf(!HELPER_AVAILABLE)("E2E: real speech-helper (macOS only)", () =>
     const { id, status } = JSON.parse(create.payload) as { id: string; status: string };
     expect(status).toBe("queued");
 
-    await waitFor(() => built.store.getJob(id)?.status === "done", { timeoutMs: 5 * 60_000, intervalMs: 250 });
+    await waitFor(() => built.store.getJob(id)?.status === "done", {
+      timeoutMs: 5 * 60_000,
+      intervalMs: 250,
+    });
 
     const res = await built.app.inject({ method: "GET", url: `/jobs/${id}/transcript.json` });
     expect(res.statusCode).toBe(200);
@@ -152,7 +163,10 @@ describe.skipIf(!HELPER_AVAILABLE)("E2E: real speech-helper (macOS only)", () =>
     });
     const { id } = JSON.parse(create.payload) as { id: string };
 
-    await waitFor(() => built.store.getJob(id)?.status === "done", { timeoutMs: 5 * 60_000, intervalMs: 500 });
+    await waitFor(() => built.store.getJob(id)?.status === "done", {
+      timeoutMs: 5 * 60_000,
+      intervalMs: 500,
+    });
 
     const res = await built.app.inject({ method: "GET", url: `/jobs/${id}/transcript.json` });
     expect(res.statusCode).toBe(200);
@@ -211,7 +225,10 @@ describe.skipIf(!HELPER_AVAILABLE)("E2E: real speech-helper (macOS only)", () =>
     });
     const { id } = JSON.parse(create.payload) as { id: string };
 
-    await waitFor(() => built.store.getJob(id)?.status === "done", { timeoutMs: 5 * 60_000, intervalMs: 250 });
+    await waitFor(() => built.store.getJob(id)?.status === "done", {
+      timeoutMs: 5 * 60_000,
+      intervalMs: 250,
+    });
 
     const res = await built.app.inject({ method: "GET", url: `/jobs/${id}/transcript.srt` });
     expect(res.statusCode).toBe(200);

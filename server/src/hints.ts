@@ -76,16 +76,24 @@ function parseFlags(tokens: string[], line: number): SpeakerHintFlags {
       // Rejecting unknown flags loudly beats silently ignoring them: a typo'd
       // `--speaker 5` that parsed as "no hint" would quietly mis-diarize every
       // file the rule was written for.
-      throw new Error(`hints line ${line}: unsupported flag "${tokens[i]}" (only --speakers, --min-speakers, --max-speakers)`);
+      throw new Error(
+        `hints line ${line}: unsupported flag "${tokens[i]}" (only --speakers, --min-speakers, --max-speakers)`,
+      );
     }
     const raw = tokens[++i];
     const n = Number(raw);
     if (!raw || !Number.isInteger(n) || n < 1) {
-      throw new Error(`hints line ${line}: ${tokens[i - 1]} needs a positive whole number, got "${raw ?? ""}"`);
+      throw new Error(
+        `hints line ${line}: ${tokens[i - 1]} needs a positive whole number, got "${raw ?? ""}"`,
+      );
     }
     flags[key] = n;
   }
-  if (flags.minSpeakers !== null && flags.maxSpeakers !== null && flags.minSpeakers > flags.maxSpeakers) {
+  if (
+    flags.minSpeakers !== null &&
+    flags.maxSpeakers !== null &&
+    flags.minSpeakers > flags.maxSpeakers
+  ) {
     throw new Error(`hints line ${line}: --min-speakers must be <= --max-speakers`);
   }
   return flags;
@@ -107,11 +115,18 @@ export function parseHints(contents: string): HintRule[] {
     // Splitting on plain whitespace silently reads "Update*" as a flag.
     const split = stripped.match(/^(.+?)\s+(--\S[\s\S]*)$/);
     if (!split) {
-      throw new Error(`hints line ${i + 1}: "${stripped}" has no flags (expected "<glob> --speakers <n>")`);
+      throw new Error(
+        `hints line ${i + 1}: "${stripped}" has no flags (expected "<glob> --speakers <n>")`,
+      );
     }
     const glob = split[1]!;
     const tokens = split[2]!.split(/\s+/);
-    rules.push({ glob, pattern: globToRegExp(glob), flags: parseFlags(tokens, i + 1), line: i + 1 });
+    rules.push({
+      glob,
+      pattern: globToRegExp(glob),
+      flags: parseFlags(tokens, i + 1),
+      line: i + 1,
+    });
   }
   return rules;
 }
@@ -121,8 +136,10 @@ export function parseHints(contents: string): HintRule[] {
  * table: specific patterns first, a `*` catch-all last. Returns null when
  * nothing matches, which callers treat as "use the CLI's own flags".
  *
- * `relativePath` is relative to the walk root (and always `/`-separated), so
- * rules like `*​/RR.wav` can be folder-aware.
+ * `relativePath` is relative to the walk root (and always `/`-separated), so a
+ * rule whose glob contains a slash — star, slash, `RR.wav` — is folder-aware.
+ * (Spelled out rather than written literally: that character sequence would
+ * close this block comment.)
  */
 export function matchHint(rules: HintRule[], relativePath: string): HintRule | null {
   return rules.find((rule) => rule.pattern.test(relativePath)) ?? null;

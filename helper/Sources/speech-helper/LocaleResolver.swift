@@ -26,10 +26,12 @@ enum LocaleResolver {
             return match
         }
 
-        let available = supportedLocales.map { $0.identifier(.bcp47) }.sorted().joined(separator: ", ")
+        let available = supportedLocales.map { $0.identifier(.bcp47) }.sorted().joined(
+            separator: ", ")
         throw HelperError(
             code: "cannotAllocateUnsupportedLocale",
-            message: "Locale \"\(identifier)\" is not supported for speech transcription. Supported locales: \(available)"
+            message:
+                "Locale \"\(identifier)\" is not supported for speech transcription. Supported locales: \(available)"
         )
     }
 }

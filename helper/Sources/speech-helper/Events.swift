@@ -22,13 +22,13 @@ enum Event {
 
     var json: [String: Any] {
         switch self {
-        case let .ready(durationSec):
+        case .ready(let durationSec):
             return ["type": "ready", "durationSec": durationSec]
-        case let .modelDownload(progress):
+        case .modelDownload(let progress):
             return ["type": "model_download", "progress": progress]
-        case let .progress(stage, pct):
+        case .progress(let stage, let pct):
             return ["type": "progress", "stage": stage, "pct": pct]
-        case let .segment(start, end, text, confidence, lowTokens):
+        case .segment(let start, let end, let text, let confidence, let lowTokens):
             // `confidence` and `lowTokens` are omitted entirely rather than sent
             // as null/[] when the engine reported no confidences, so a consumer
             // can distinguish "not measured" from "measured as clean". The
@@ -38,13 +38,13 @@ enum Event {
             if let confidence { json["confidence"] = confidence }
             if !lowTokens.isEmpty { json["lowTokens"] = lowTokens.map(\.json) }
             return json
-        case let .speakers(segments, count):
+        case .speakers(let segments, let count):
             return ["type": "speakers", "segments": segments.map(\.json), "count": count]
-        case let .warning(code, message):
+        case .warning(let code, let message):
             return ["type": "warning", "code": code, "message": message]
-        case let .done(durationSec):
+        case .done(let durationSec):
             return ["type": "done", "durationSec": durationSec]
-        case let .error(code, message):
+        case .error(let code, let message):
             return ["type": "error", "code": code, "message": message]
         }
     }
@@ -100,11 +100,14 @@ final class EventEmitter: @unchecked Sendable {
             break
         }
 
-        guard let data = try? JSONSerialization.data(withJSONObject: event.json, options: [.sortedKeys]) else {
+        guard
+            let data = try? JSONSerialization.data(
+                withJSONObject: event.json, options: [.sortedKeys])
+        else {
             return
         }
         var line = data
-        line.append(0x0A) // '\n'
+        line.append(0x0A)  // '\n'
         stdout.write(line)
     }
 }

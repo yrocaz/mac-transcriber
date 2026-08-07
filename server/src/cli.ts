@@ -129,8 +129,7 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { error: s
       const value = argv[++i];
       if (!value) return { error: "--hints requires a value" };
       hintsFile = value;
-    }
-    else if (arg === "--speakers" || arg === "--min-speakers" || arg === "--max-speakers") {
+    } else if (arg === "--speakers" || arg === "--min-speakers" || arg === "--max-speakers") {
       const value = readCount(argv[++i], arg);
       if (typeof value === "string") return { error: value };
       if (arg === "--speakers") speakers = value;
@@ -140,8 +139,7 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { error: s
       const value = argv[++i];
       if (!value) return { error: "--out requires a value" };
       outDir = value;
-    }
-    else if (arg === "--locale") {
+    } else if (arg === "--locale") {
       const value = argv[++i];
       if (!value) return { error: "--locale requires a value" };
       locale = value;
@@ -436,13 +434,12 @@ async function runMain(
 
   // Directory in, tree mode. Checked before validateMediaPath, which is
   // file-shaped and would reject a directory for having no media extension.
-  let inputIsDirectory = false;
-  try {
-    inputIsDirectory = fs.statSync(absolute).isDirectory();
-  } catch {
+  const stat = fs.statSync(absolute, { throwIfNoEntry: false });
+  if (!stat) {
     process.stderr.write(`error: Path does not exist: ${absolute}\n`);
     return 2;
   }
+  const inputIsDirectory = stat.isDirectory();
 
   const config = loadConfig();
   const store = new JobStore(config.dataDir);

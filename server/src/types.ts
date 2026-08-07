@@ -237,7 +237,8 @@ export const CreateJobBody = z
     maxSpeakers: z.number().int().positive().optional(),
   })
   .refine(
-    (b) => b.minSpeakers === undefined || b.maxSpeakers === undefined || b.minSpeakers <= b.maxSpeakers,
+    (b) =>
+      b.minSpeakers === undefined || b.maxSpeakers === undefined || b.minSpeakers <= b.maxSpeakers,
     { message: "minSpeakers must be <= maxSpeakers" },
   );
 export type CreateJobBody = z.infer<typeof CreateJobBody>;

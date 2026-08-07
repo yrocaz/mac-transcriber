@@ -9,11 +9,6 @@ import Speech
 struct HelperError: Error {
     let code: String
     let message: String
-
-    init(code: String, message: String) {
-        self.code = code
-        self.message = message
-    }
 }
 
 /// Maps any error thrown during transcription to a `(code, message)` pair for
@@ -28,7 +23,8 @@ func mapToHelperError(_ error: Error) -> HelperError {
     }
 
     if let speechError = error as? SFSpeechError {
-        return HelperError(code: code(for: speechError.code), message: speechError.localizedDescription)
+        return HelperError(
+            code: code(for: speechError.code), message: speechError.localizedDescription)
     }
 
     let nsError = error as NSError
@@ -38,13 +34,15 @@ func mapToHelperError(_ error: Error) -> HelperError {
     // domain "com.apple.coreaudio.avfaudio", code 1685348671 ('dta?'). Also
     // catch the NSOSStatusErrorDomain/AVFoundationErrorDomain spellings some
     // AVFoundation call sites use for the same class of failure.
-    let domainIndicatesAudioOpenFailure = nsError.domain == NSOSStatusErrorDomain
+    let domainIndicatesAudioOpenFailure =
+        nsError.domain == NSOSStatusErrorDomain
         || nsError.domain == AVFoundationErrorDomain
         || nsError.domain.localizedCaseInsensitiveContains("coreaudio")
     if domainIndicatesAudioOpenFailure {
         return HelperError(
             code: "audioReadFailed",
-            message: "Could not read an audio track from the input file: \(nsError.localizedDescription)"
+            message:
+                "Could not read an audio track from the input file: \(nsError.localizedDescription)"
         )
     }
 

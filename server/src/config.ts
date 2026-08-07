@@ -49,10 +49,7 @@ export interface AppConfig {
 
 export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
-    dataDir:
-      overrides.dataDir ??
-      process.env.TRANSCRIBER_DATA_DIR ??
-      path.join(REPO_ROOT, "data"),
+    dataDir: overrides.dataDir ?? process.env.TRANSCRIBER_DATA_DIR ?? path.join(REPO_ROOT, "data"),
     helperPath:
       overrides.helperPath ??
       process.env.TRANSCRIBER_HELPER_PATH ??

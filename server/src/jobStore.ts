@@ -96,9 +96,7 @@ export class JobStore {
   }
 
   listJobs(): JobRecord[] {
-    return [...this.cache.values()].sort((a, b) =>
-      b.createdAt.localeCompare(a.createdAt),
-    );
+    return [...this.cache.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   /** Read-modify-write against the in-memory record; persists synchronously. */

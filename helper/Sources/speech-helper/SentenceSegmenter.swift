@@ -81,9 +81,10 @@ extension AttributedString {
         let string = String(characters)
         tokenizer.string = string
 
-        return tokenizer.tokens(for: string.startIndex..<string.endIndex).compactMap { stringRange in
+        return tokenizer.tokens(for: string.startIndex..<string.endIndex).compactMap {
+            stringRange in
             guard let start = AttributedString.Index(stringRange.lowerBound, within: self),
-                  let end = AttributedString.Index(stringRange.upperBound, within: self)
+                let end = AttributedString.Index(stringRange.upperBound, within: self)
             else { return nil }
 
             let slice = self[start..<end]
@@ -101,19 +102,21 @@ extension AttributedString {
             // The same filtered set is what confidence is averaged over, so a
             // whitespace run can't drag a sentence's score around either.
             let wordRuns = slice.runs.filter {
-                !String(slice[$0.range].characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                !String(slice[$0.range].characters).trimmingCharacters(in: .whitespacesAndNewlines)
+                    .isEmpty
             }
             let timeRanges = wordRuns.compactMap(\.audioTimeRange)
             guard let first = timeRanges.first, let last = timeRanges.last else { return nil }
 
             let confidences = wordRuns.compactMap(\.transcriptionConfidence)
-            let meanConfidence: Decimal? = confidences.isEmpty
+            let meanConfidence: Decimal? =
+                confidences.isEmpty
                 ? nil
                 : roundedToMillisecond(confidences.reduce(0, +) / Double(confidences.count))
 
             let lowTokens: [LowConfidenceToken] = wordRuns.compactMap { run in
                 guard let confidence = run.transcriptionConfidence,
-                      confidence < lowConfidenceCaptureThreshold
+                    confidence < lowConfidenceCaptureThreshold
                 else { return nil }
                 let word = String(slice[run.range].characters)
                     .trimmingCharacters(in: .whitespacesAndNewlines)

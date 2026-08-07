@@ -36,7 +36,9 @@ describe("isLikelyDamagedMedia", () => {
   });
 
   it("is true when the container or codec never opened", () => {
-    expect(isLikelyDamagedMedia(failedJob({ error: { code: "audioReadFailed", message: "no track" } }))).toBe(true);
+    expect(
+      isLikelyDamagedMedia(failedJob({ error: { code: "audioReadFailed", message: "no track" } })),
+    ).toBe(true);
   });
 
   it("is false when nothing was decoded", () => {

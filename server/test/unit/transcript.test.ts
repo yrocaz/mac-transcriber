@@ -96,9 +96,7 @@ describe("assembleTranscript", () => {
   describe("speaker merge (max-overlap strategy)", () => {
     it("breaks a tied overlap by earliest speaker (genuine max-overlap case is below)", () => {
       const job = makeJobRecord({
-        segments: [
-          { start: 0, end: 5, text: "Long segment" },
-        ],
+        segments: [{ start: 0, end: 5, text: "Long segment" }],
         speakers: {
           segments: [
             { start: 0, end: 2, speaker: "S1" },
@@ -118,13 +116,9 @@ describe("assembleTranscript", () => {
 
     it("returns null when no overlapping turn exists", () => {
       const job = makeJobRecord({
-        segments: [
-          { start: 5, end: 7, text: "No overlap" },
-        ],
+        segments: [{ start: 5, end: 7, text: "No overlap" }],
         speakers: {
-          segments: [
-            { start: 0, end: 2, speaker: "S1" },
-          ],
+          segments: [{ start: 0, end: 2, speaker: "S1" }],
           count: 1,
         },
       });
@@ -134,9 +128,7 @@ describe("assembleTranscript", () => {
 
     it("ignores touching boundaries (strict > 0 overlap)", () => {
       const job = makeJobRecord({
-        segments: [
-          { start: 2, end: 4, text: "Touches boundary" },
-        ],
+        segments: [{ start: 2, end: 4, text: "Touches boundary" }],
         speakers: {
           segments: [
             { start: 0, end: 2, speaker: "S1" }, // ends exactly where segment starts
@@ -194,9 +186,7 @@ describe("assembleTranscript", () => {
     it("rounds segment timestamps and durationSec to 3 decimals", () => {
       const job = makeJobRecord({
         durationSec: 10.5709999999999997,
-        segments: [
-          { start: 0.123456, end: 2.987654, text: "Test" },
-        ],
+        segments: [{ start: 0.123456, end: 2.987654, text: "Test" }],
       });
       const transcript = assembleTranscript(job);
       expect(transcript.metadata.durationSec).toBe(10.571);
@@ -224,9 +214,7 @@ describe("assembleTranscript", () => {
 
     it("trims whitespace from segment text", () => {
       const job = makeJobRecord({
-        segments: [
-          { start: 0, end: 1, text: "  padded  " },
-        ],
+        segments: [{ start: 0, end: 1, text: "  padded  " }],
       });
       const transcript = assembleTranscript(job);
       expect(transcript.segments[0].text).toBe("padded");
@@ -297,9 +285,7 @@ describe("assembleTranscript", () => {
   describe("speaker merge: maximum overlap selection", () => {
     it("assigns speaker with strictly greater overlap (not just tied)", () => {
       const job = makeJobRecord({
-        segments: [
-          { start: 0, end: 10, text: "Long segment spans both speakers" },
-        ],
+        segments: [{ start: 0, end: 10, text: "Long segment spans both speakers" }],
         speakers: {
           segments: [
             { start: 0, end: 3, speaker: "S1" }, // 3s overlap (0-3)
@@ -386,7 +372,7 @@ describe("renderSrt", () => {
       {
         id: 0,
         start: 0.001, // 1 ms
-        end: 1.100, // 1.1 seconds
+        end: 1.1, // 1.1 seconds
         text: "Padding test",
         speaker: null,
       },

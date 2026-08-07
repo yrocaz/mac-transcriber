@@ -1,5 +1,5 @@
-import ArgumentParser
 import AVFoundation
+import ArgumentParser
 import CoreMedia
 import Foundation
 import Speech
@@ -33,16 +33,24 @@ struct TranscribeCommand: AsyncParsableCommand {
     @Option(name: .long, help: "BCP-47 locale for transcription, e.g. en-US.")
     var locale: String
 
-    @Flag(name: .customLong("no-diarize"), help: "Skip diarization entirely: no diarize-stage progress events, no speakers event.")
+    @Flag(
+        name: .customLong("no-diarize"),
+        help: "Skip diarization entirely: no diarize-stage progress events, no speakers event.")
     var noDiarize: Bool = false
 
-    @Option(name: .customLong("speakers"), help: "Exact number of speakers, when known. Overrides --min-speakers/--max-speakers.")
+    @Option(
+        name: .customLong("speakers"),
+        help: "Exact number of speakers, when known. Overrides --min-speakers/--max-speakers.")
     var speakers: Int?
 
-    @Option(name: .customLong("min-speakers"), help: "Lower bound on speaker count. Ignored when --speakers is given.")
+    @Option(
+        name: .customLong("min-speakers"),
+        help: "Lower bound on speaker count. Ignored when --speakers is given.")
     var minSpeakers: Int?
 
-    @Option(name: .customLong("max-speakers"), help: "Upper bound on speaker count. Ignored when --speakers is given.")
+    @Option(
+        name: .customLong("max-speakers"),
+        help: "Upper bound on speaker count. Ignored when --speakers is given.")
     var maxSpeakers: Int?
 
     func run() async throws {
@@ -69,7 +77,9 @@ struct TranscribeCommand: AsyncParsableCommand {
                 // recoverable by downloading) — `unavailable` means the
                 // SpeechTranscriber API itself isn't usable on this device at
                 // all, so the server can branch on the two differently.
-                throw HelperError(code: "unavailable", message: "SpeechTranscriber is not available on this device.")
+                throw HelperError(
+                    code: "unavailable",
+                    message: "SpeechTranscriber is not available on this device.")
             }
 
             let resolvedLocale = try await LocaleResolver.resolve(locale)
@@ -80,7 +90,8 @@ struct TranscribeCommand: AsyncParsableCommand {
             let prepared = try await PreparedAudio.prepare(inputURL)
             preparedAudio = prepared
 
-            EventEmitter.shared.emit(.ready(durationSec: roundedToMillisecond(prepared.durationSec)))
+            EventEmitter.shared.emit(
+                .ready(durationSec: roundedToMillisecond(prepared.durationSec)))
 
             for reserved in await AssetInventory.reservedLocales {
                 await AssetInventory.release(reservedLocale: reserved)
@@ -103,10 +114,13 @@ struct TranscribeCommand: AsyncParsableCommand {
 
             // Always call assetInstallationRequest — documented idempotent
             // and consolidated, so this is safe even when already installed.
-            if let request = try await AssetInventory.assetInstallationRequest(supporting: modules) {
+            if let request = try await AssetInventory.assetInstallationRequest(supporting: modules)
+            {
                 let progress = request.progress
-                let observation = progress.observe(\.fractionCompleted, options: [.new]) { progress, _ in
-                    EventEmitter.shared.emit(.modelDownload(progress: roundedToMillisecond(progress.fractionCompleted)))
+                let observation = progress.observe(\.fractionCompleted, options: [.new]) {
+                    progress, _ in
+                    EventEmitter.shared.emit(
+                        .modelDownload(progress: roundedToMillisecond(progress.fractionCompleted)))
                 }
                 defer { observation.invalidate() }
                 try await request.downloadAndInstall()
@@ -129,15 +143,18 @@ struct TranscribeCommand: AsyncParsableCommand {
                 for try await result in transcriber.results {
                     transcript.append(result.text)
                     if !result.alternatives.isEmpty {
-                        alternatives.append(ResultAlternatives(
-                            start: result.range.start.seconds,
-                            end: result.range.end.seconds,
-                            options: result.alternatives.map { String($0.characters) }
-                        ))
+                        alternatives.append(
+                            ResultAlternatives(
+                                start: result.range.start.seconds,
+                                end: result.range.end.seconds,
+                                options: result.alternatives.map { String($0.characters) }
+                            ))
                     }
                     if durationSec > 0 {
-                        let pct = min(max(result.resultsFinalizationTime.seconds / durationSec, 0), 1)
-                        EventEmitter.shared.emit(.progress(stage: "transcribe", pct: roundedToMillisecond(pct)))
+                        let pct = min(
+                            max(result.resultsFinalizationTime.seconds / durationSec, 0), 1)
+                        EventEmitter.shared.emit(
+                            .progress(stage: "transcribe", pct: roundedToMillisecond(pct)))
                     }
                 }
                 return TranscriptionOutput(transcript: transcript, alternatives: alternatives)
@@ -166,14 +183,17 @@ struct TranscribeCommand: AsyncParsableCommand {
                 output = (try? await task.value) ?? TranscriptionOutput.empty
             }
 
-            for segment in output.transcript.sentenceSegments(resultAlternatives: output.alternatives) {
-                EventEmitter.shared.emit(.segment(
-                    start: segment.start,
-                    end: segment.end,
-                    text: segment.text,
-                    confidence: segment.confidence,
-                    lowTokens: segment.lowTokens
-                ))
+            for segment in output.transcript.sentenceSegments(
+                resultAlternatives: output.alternatives)
+            {
+                EventEmitter.shared.emit(
+                    .segment(
+                        start: segment.start,
+                        end: segment.end,
+                        text: segment.text,
+                        confidence: segment.confidence,
+                        lowTokens: segment.lowTokens
+                    ))
             }
 
             EventEmitter.shared.emit(.progress(stage: "transcribe", pct: 1.0))
@@ -213,16 +233,22 @@ struct TranscribeCommand: AsyncParsableCommand {
                         min: minSpeakers,
                         max: maxSpeakers
                     )
-                    let turns = try await SpeakerDiarizer.diarize(prepared.url, hint: hint) { chunksProcessed, totalChunks in
+                    let turns = try await SpeakerDiarizer.diarize(prepared.url, hint: hint) {
+                        chunksProcessed, totalChunks in
                         // Real progress has started arriving: the silent
                         // window is over, so stop ticking.
                         keepAlive.stop()
-                        let pct = totalChunks > 0 ? Double(chunksProcessed) / Double(totalChunks) : 1.0
-                        EventEmitter.shared.emit(.progress(stage: "diarize", pct: roundedToMillisecond(min(max(pct, 0), 1))))
+                        let pct =
+                            totalChunks > 0 ? Double(chunksProcessed) / Double(totalChunks) : 1.0
+                        EventEmitter.shared.emit(
+                            .progress(
+                                stage: "diarize", pct: roundedToMillisecond(min(max(pct, 0), 1))))
                     }
                     EventEmitter.shared.emit(.progress(stage: "diarize", pct: 1.0))
 
-                    let payload = turns.map { SpeakerTurnPayload(start: $0.start, end: $0.end, speaker: $0.speaker) }
+                    let payload = turns.map {
+                        SpeakerTurnPayload(start: $0.start, end: $0.end, speaker: $0.speaker)
+                    }
                     let speakerCount = Set(turns.map(\.speaker)).count
                     EventEmitter.shared.emit(.speakers(segments: payload, count: speakerCount))
                 } catch {

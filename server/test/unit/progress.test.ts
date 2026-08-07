@@ -14,7 +14,9 @@ describe("mapStageProgress", () => {
     expect(mapStageProgress(true, "transcribe", 1)).toBeCloseTo(TRANSCRIBE_SHARE);
 
     expect(mapStageProgress(true, "diarize", 0)).toBeCloseTo(TRANSCRIBE_SHARE);
-    expect(mapStageProgress(true, "diarize", 0.5)).toBeCloseTo(TRANSCRIBE_SHARE + (1 - TRANSCRIBE_SHARE) * 0.5);
+    expect(mapStageProgress(true, "diarize", 0.5)).toBeCloseTo(
+      TRANSCRIBE_SHARE + (1 - TRANSCRIBE_SHARE) * 0.5,
+    );
     expect(mapStageProgress(true, "diarize", 1)).toBeCloseTo(1.0);
   });
 

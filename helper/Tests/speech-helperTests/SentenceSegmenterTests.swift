@@ -122,15 +122,16 @@ import Testing
         )
         separator.transcriptionConfidence = 0.0
         text.append(separator)
-        text.append({
-            var piece = AttributedString("words.")
-            piece.audioTimeRange = CMTimeRange(
-                start: CMTime(seconds: 0.6, preferredTimescale: 1000),
-                end: CMTime(seconds: 1.0, preferredTimescale: 1000)
-            )
-            piece.transcriptionConfidence = 0.9
-            return piece
-        }())
+        text.append(
+            {
+                var piece = AttributedString("words.")
+                piece.audioTimeRange = CMTimeRange(
+                    start: CMTime(seconds: 0.6, preferredTimescale: 1000),
+                    end: CMTime(seconds: 1.0, preferredTimescale: 1000)
+                )
+                piece.transcriptionConfidence = 0.9
+                return piece
+            }())
 
         let segments = text.sentenceSegments()
         #expect(segments.count == 1)

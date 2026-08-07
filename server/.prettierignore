@@ -1,0 +1,16 @@
+# Build output and dependencies.
+dist/
+node_modules/
+
+# Test fixtures are byte-sensitive: fake-helper.sh emits NDJSON that the
+# supervisor parses, and media files are binary.
+test/fixtures/
+
+# Markdown is deliberately NOT formatted.
+#
+# The docs here are hand-wrapped prose with aligned tables and terminal
+# transcripts inside fenced blocks. Prettier normalizes list markers and
+# realigns table pipes, which produces a large diff that changes no meaning —
+# and `format:check` would then gate docs on cosmetics every time one is
+# edited. Formatting prose is a separate decision from formatting code.
+*.md

@@ -130,7 +130,7 @@ export function assembleTranscript(job: JobRecord): Transcript {
   const diarizationStatus = deriveDiarizationStatus(job);
 
   // Build segments with max-overlap speaker merge (if diarization succeeded).
-  let segments: TranscriptSegment[] = job.segments.map((seg, idx) => {
+  const segments: TranscriptSegment[] = job.segments.map((seg, idx) => {
     let speaker: string | null = null;
 
     if (diarizationStatus === "ok" && job.speakers) {
@@ -153,16 +153,11 @@ export function assembleTranscript(job: JobRecord): Transcript {
   });
 
   // Drop empty segments and reassign sequential ids after filtering.
-  const nonEmptySegments = segments
-    .filter(hasText)
-    .map((seg, idx) => ({ ...seg, id: idx }));
+  const nonEmptySegments = segments.filter(hasText).map((seg, idx) => ({ ...seg, id: idx }));
   const text = nonEmptySegments.map((s) => s.text).join(" ");
 
   // Metadata.
-  const speakerCount =
-    diarizationStatus === "ok" && job.speakers
-      ? job.speakers.count
-      : null;
+  const speakerCount = diarizationStatus === "ok" && job.speakers ? job.speakers.count : null;
 
   const metadata: TranscriptMetadata = {
     source: job.path,
@@ -239,8 +234,7 @@ export function renderReadableText(transcript: Transcript): string {
   const out: string[] = [];
 
   out.push(path.basename(metadata.source));
-  const speakers =
-    metadata.speakerCount === null ? "" : ` · ${metadata.speakerCount} speakers`;
+  const speakers = metadata.speakerCount === null ? "" : ` · ${metadata.speakerCount} speakers`;
   out.push(`${formatClock(metadata.durationSec)}${speakers} · ${metadata.locale}`);
   out.push("");
 

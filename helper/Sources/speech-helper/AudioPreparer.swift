@@ -30,7 +30,7 @@ struct PreparedAudio {
         }
 
         guard audioFile.fileFormat.streamDescription.pointee.mFormatID == kAudioFormatMPEGLayer3,
-              (try? hasMissingFrames(at: inputURL, expectedLength: audioFile.length)) == true
+            (try? hasMissingFrames(at: inputURL, expectedLength: audioFile.length)) == true
         else {
             return PreparedAudio(url: inputURL, audioFile: audioFile, temporaryURL: nil)
         }
@@ -52,15 +52,20 @@ struct PreparedAudio {
 
         do {
             let asset = AVURLAsset(url: inputURL)
-            guard let exportSession = AVAssetExportSession(
-                asset: asset,
-                presetName: AVAssetExportPresetAppleM4A
-            ) else {
-                throw HelperError(code: "audioReadFailed", message: "Could not create an export session to repair the MP3 input.")
+            guard
+                let exportSession = AVAssetExportSession(
+                    asset: asset,
+                    presetName: AVAssetExportPresetAppleM4A
+                )
+            else {
+                throw HelperError(
+                    code: "audioReadFailed",
+                    message: "Could not create an export session to repair the MP3 input.")
             }
             try await exportSession.export(to: temporaryURL, as: .m4a)
             let repairedFile = try AVAudioFile(forReading: temporaryURL)
-            return PreparedAudio(url: temporaryURL, audioFile: repairedFile, temporaryURL: temporaryURL)
+            return PreparedAudio(
+                url: temporaryURL, audioFile: repairedFile, temporaryURL: temporaryURL)
         } catch {
             try? FileManager.default.removeItem(at: temporaryURL)
             throw mapToHelperError(error)
@@ -70,13 +75,18 @@ struct PreparedAudio {
     /// Probing changes the decoder's position, so a fresh `AVAudioFile` handle
     /// is used purely for the probe (yap's approach) — the caller's own handle
     /// is left untouched.
-    private static func hasMissingFrames(at url: URL, expectedLength: AVAudioFramePosition) throws -> Bool {
+    private static func hasMissingFrames(at url: URL, expectedLength: AVAudioFramePosition) throws
+        -> Bool
+    {
         let frameCount = AVAudioFrameCount(min(expectedLength, 4_096))
         guard frameCount > 0 else { return false }
 
         let probe = try AVAudioFile(forReading: url)
         probe.framePosition = expectedLength - AVAudioFramePosition(frameCount)
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: probe.processingFormat, frameCapacity: frameCount) else {
+        guard
+            let buffer = AVAudioPCMBuffer(
+                pcmFormat: probe.processingFormat, frameCapacity: frameCount)
+        else {
             return false
         }
 

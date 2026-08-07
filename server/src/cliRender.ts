@@ -5,12 +5,7 @@
  */
 
 /** Phases the CLI reports, in the order they occur. */
-export type Phase =
-  | "preparing"
-  | "downloading"
-  | "transcribing"
-  | "identifying"
-  | "done";
+export type Phase = "preparing" | "downloading" | "transcribing" | "identifying" | "done";
 
 const PHASE_LABELS: Record<Phase, string> = {
   preparing: "Preparing",
@@ -146,7 +141,9 @@ export function renderHeader(fileName: string, durationSec: number | null): stri
  * pass `job?.error` directly; a job that ended without either a `done` status
  * or an error is a bug elsewhere, but it should still print something useful.
  */
-export function formatJobError(error: { code: string; message: string } | null | undefined): string {
+export function formatJobError(
+  error: { code: string; message: string } | null | undefined,
+): string {
   if (!error) return "job did not complete";
   return `${error.code}: ${error.message}`;
 }

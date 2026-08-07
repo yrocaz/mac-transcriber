@@ -77,10 +77,7 @@ export function mirroredOutputDir(inputRoot: string, mediaPath: string, outRoot:
 
 /** Path relative to the walk root, `/`-separated, for matching hint globs. */
 export function relativeKey(inputRoot: string, mediaPath: string): string {
-  return path
-    .relative(path.resolve(inputRoot), path.resolve(mediaPath))
-    .split(path.sep)
-    .join("/");
+  return path.relative(path.resolve(inputRoot), path.resolve(mediaPath)).split(path.sep).join("/");
 }
 
 /**

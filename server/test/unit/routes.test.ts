@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildTestApp, FAST_TIMEOUTS, fixtureMediaPath, waitFor } from "../helpers/testApp";
 
 describe("POST /jobs validation", () => {
@@ -160,8 +160,16 @@ describe("FIFO queue, concurrency 1", () => {
     // still pass even with a permanently wedged queue, since it never
     // observes whether the queue moved on.
     const { app, store } = buildTestApp({ helperPath: "/definitely/does/not/exist/speech-helper" });
-    const first = await app.inject({ method: "POST", url: "/jobs", payload: { path: fixtureMediaPath("basic.wav") } });
-    const second = await app.inject({ method: "POST", url: "/jobs", payload: { path: fixtureMediaPath("basic2.wav") } });
+    const first = await app.inject({
+      method: "POST",
+      url: "/jobs",
+      payload: { path: fixtureMediaPath("basic.wav") },
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/jobs",
+      payload: { path: fixtureMediaPath("basic2.wav") },
+    });
     const firstId = first.json().id as string;
     const secondId = second.json().id as string;
 

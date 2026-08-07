@@ -76,9 +76,7 @@ describe("collectReviewItems: what gets flagged", () => {
   });
 
   it("ignores words at or above the review threshold", () => {
-    const job = makeJob([
-      segment({ lowTokens: [token({ confidence: REVIEW_THRESHOLD })] }),
-    ]);
+    const job = makeJob([segment({ lowTokens: [token({ confidence: REVIEW_THRESHOLD })] })]);
     expect(itemsOf(job)).toHaveLength(0);
   });
 
@@ -88,9 +86,7 @@ describe("collectReviewItems: what gets flagged", () => {
     const fillers = ["their", "the", "um", "uh", "yeah", "Oh"];
     const job = makeJob([
       segment({
-        lowTokens: fillers.map((text, i) =>
-          token({ text, confidence: 0.001 + i * 0.01 }),
-        ),
+        lowTokens: fillers.map((text, i) => token({ text, confidence: 0.001 + i * 0.01 })),
       }),
     ]);
     expect(itemsOf(job)).toHaveLength(0);
@@ -111,7 +107,12 @@ describe("collectReviewItems: what gets flagged", () => {
   it("ranks worst-first regardless of position in the recording", () => {
     const job = makeJob([
       segment({ start: 0, end: 2, lowTokens: [token({ text: "vessel", confidence: 0.4 })] }),
-      segment({ start: 2, end: 4, text: "Second one.", lowTokens: [token({ text: "Crom", confidence: 0.1 })] }),
+      segment({
+        start: 2,
+        end: 4,
+        text: "Second one.",
+        lowTokens: [token({ text: "Crom", confidence: 0.1 })],
+      }),
     ]);
     expect(itemsOf(job).map((i) => i.word)).toEqual(["Crom", "vessel"]);
   });
@@ -150,7 +151,12 @@ describe("collectReviewItems: alignment with the assembled transcript", () => {
     const job = makeJob(
       [
         segment({ start: 0, end: 1, text: "   ", lowTokens: [] }),
-        segment({ start: 1, end: 2, text: "Real sentence here.", lowTokens: [token({ start: 1.5 })] }),
+        segment({
+          start: 1,
+          end: 2,
+          text: "Real sentence here.",
+          lowTokens: [token({ start: 1.5 })],
+        }),
       ],
       {
         diarize: true,
@@ -229,9 +235,10 @@ describe("renderReview", () => {
 describe("presentableAlternatives", () => {
   it("collapses hypotheses differing only in case or punctuation", () => {
     // Observed verbatim on a real recording.
-    expect(
-      presentableAlternatives([" All right.", " Right.", " right.", " All right,"]),
-    ).toEqual(["All right.", "Right."]);
+    expect(presentableAlternatives([" All right.", " Right.", " right.", " All right,"])).toEqual([
+      "All right.",
+      "Right.",
+    ]);
   });
 
   it("keeps a genuine word difference — the whole point of showing alternatives", () => {

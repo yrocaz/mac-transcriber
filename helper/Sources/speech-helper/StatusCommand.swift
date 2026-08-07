@@ -26,7 +26,9 @@ struct StatusCommand: AsyncParsableCommand {
             "installedLocales": installedLocales,
         ]
 
-        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
+        guard
+            let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        else {
             throw ExitCode.failure
         }
         var line = data

@@ -175,7 +175,11 @@ export class HelperSupervisor {
       const resetInactivityTimer = () => {
         inactivityTimer = clearTimer(inactivityTimer);
         inactivityTimer = armTimer(
-          () => finalizeError("inactivityTimeout", `Helper produced no events for ${timeouts.inactivityTimeoutMs}ms.`),
+          () =>
+            finalizeError(
+              "inactivityTimeout",
+              `Helper produced no events for ${timeouts.inactivityTimeoutMs}ms.`,
+            ),
           timeouts.inactivityTimeoutMs,
         );
       };
@@ -186,7 +190,11 @@ export class HelperSupervisor {
           timeouts.totalRuntimeFloorMs,
         );
         totalTimer = armTimer(
-          () => finalizeError("totalTimeout", `Helper exceeded the total runtime budget (${totalMs}ms).`),
+          () =>
+            finalizeError(
+              "totalTimeout",
+              `Helper exceeded the total runtime budget (${totalMs}ms).`,
+            ),
           totalMs,
         );
       };
@@ -318,7 +326,11 @@ export class HelperSupervisor {
 
       // Startup timeout: 60s from spawn to `ready` (spec §6).
       startupTimer = armTimer(
-        () => finalizeError("startupTimeout", `Helper did not emit 'ready' within ${timeouts.startupTimeoutMs}ms.`),
+        () =>
+          finalizeError(
+            "startupTimeout",
+            `Helper did not emit 'ready' within ${timeouts.startupTimeoutMs}ms.`,
+          ),
         timeouts.startupTimeoutMs,
       );
       resetInactivityTimer();
@@ -421,7 +433,12 @@ export class HelperSupervisor {
         // settled as we're going to get, in case more arrived after the
         // job was first marked errored.
         const current = store.getJob(job.id);
-        if (current && current.status === "error" && stderrTail && current.stderrTail !== stderrTail) {
+        if (
+          current &&
+          current.status === "error" &&
+          stderrTail &&
+          current.stderrTail !== stderrTail
+        ) {
           store.updateJob(job.id, { stderrTail });
         }
         resolveOnce();

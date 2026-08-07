@@ -56,7 +56,10 @@ describe("JobStore restart recovery", () => {
   });
 
   it("marks a stale running job as interrupted on init", () => {
-    writeRawJob(dataDir, baseJob({ id: "running-job", status: "running", startedAt: new Date().toISOString() }));
+    writeRawJob(
+      dataDir,
+      baseJob({ id: "running-job", status: "running", startedAt: new Date().toISOString() }),
+    );
 
     const store = new JobStore(dataDir);
     store.init();
@@ -83,7 +86,11 @@ describe("JobStore restart recovery", () => {
     writeRawJob(dataDir, baseJob({ id: "done-job", status: "done", progress: 1 }));
     writeRawJob(
       dataDir,
-      baseJob({ id: "error-job", status: "error", error: { code: "audioReadFailed", message: "boom" } }),
+      baseJob({
+        id: "error-job",
+        status: "error",
+        error: { code: "audioReadFailed", message: "boom" },
+      }),
     );
 
     const store = new JobStore(dataDir);
@@ -98,14 +105,21 @@ describe("JobStore restart recovery", () => {
     const store = new JobStore(dataDir);
     store.init();
 
-    const job = store.createJob({ id: "new-job", path: "/tmp/a.wav", locale: "en-US", diarize: true });
+    const job = store.createJob({
+      id: "new-job",
+      path: "/tmp/a.wav",
+      locale: "en-US",
+      diarize: true,
+    });
     expect(job.status).toBe("queued");
 
     const updated = store.updateJob("new-job", { status: "running", progress: 0.5 });
     expect(updated.status).toBe("running");
     expect(updated.progress).toBe(0.5);
 
-    const onDisk = JSON.parse(fs.readFileSync(path.join(dataDir, "jobs", "new-job", "job.json"), "utf8"));
+    const onDisk = JSON.parse(
+      fs.readFileSync(path.join(dataDir, "jobs", "new-job", "job.json"), "utf8"),
+    );
     expect(onDisk.status).toBe("running");
     expect(onDisk.progress).toBe(0.5);
   });

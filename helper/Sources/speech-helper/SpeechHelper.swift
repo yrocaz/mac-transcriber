@@ -7,7 +7,8 @@ import ArgumentParser
 struct SpeechHelper: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "speech-helper",
-        abstract: "Local Apple SpeechAnalyzer wrapper — spawned by the media-transcriber server per job.",
+        abstract:
+            "Local Apple SpeechAnalyzer wrapper — spawned by the media-transcriber server per job.",
         subcommands: [StatusCommand.self, TranscribeCommand.self]
     )
 }

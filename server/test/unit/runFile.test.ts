@@ -16,7 +16,10 @@ function setup() {
   // sleeps 0.15s deliberately, and FAST_TIMEOUTS' 400ms inactivity budget
   // loses that race once the whole suite runs 14 files in parallel on a
   // cold machine. Nothing here is testing timeout behaviour.
-  const supervisor = new HelperSupervisor({ helperPath: FAKE_HELPER_PATH, timeouts: DEFAULT_TIMEOUTS });
+  const supervisor = new HelperSupervisor({
+    helperPath: FAKE_HELPER_PATH,
+    timeouts: DEFAULT_TIMEOUTS,
+  });
   const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "runfile-out-"));
   return { store, supervisor, outputDir };
 }
@@ -59,7 +62,9 @@ describe("transcribeOne", () => {
     expect(job.status).toBe("done");
     expect(recovered).toBe(false);
     expect(calls).toEqual([]);
-    expect(fs.readFileSync(path.join(outputDir, "transcript.txt"), "utf8")).toContain("Hello there.");
+    expect(fs.readFileSync(path.join(outputDir, "transcript.txt"), "utf8")).toContain(
+      "Hello there.",
+    );
   });
 
   it("recovers a mid-file abort by re-encoding once", async () => {
