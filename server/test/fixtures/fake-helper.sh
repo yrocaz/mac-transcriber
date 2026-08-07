@@ -59,6 +59,37 @@ name="$(basename "$input")"
 name="${name%.*}"
 
 case "$name" in
+  recovered-*)
+    # Whatever recover.ts handed back after re-encoding. Matched first so it
+    # wins over the scenario the ORIGINAL filename selects — that asymmetry is
+    # the whole point: the same recording fails as delivered and succeeds once
+    # re-encoded, which is exactly what damaged source media does.
+    emit '{"type":"ready","durationSec":10}'
+    emit '{"type":"progress","stage":"transcribe","pct":1}'
+    emit '{"type":"segment","start":0,"end":2,"text":"Recovered after re-encoding."}'
+    emit '{"type":"progress","stage":"diarize","pct":1}'
+    emit '{"type":"speakers","segments":[{"start":0,"end":2,"speaker":"S1"}],"count":1}'
+    emit '{"type":"done","durationSec":10}'
+    ;;
+
+  damaged-midfile*)
+    # The observed damaged-media signature: decoding starts, runs partway, then
+    # aborts with a generic error at a reproducible offset. Re-running this
+    # input lands here again every time; only changing the input escapes it.
+    emit '{"type":"ready","durationSec":10}'
+    emit '{"type":"progress","stage":"transcribe","pct":0.62}'
+    emit '{"type":"error","code":"unknown","message":"The operation could not be completed. (Foundation._GenericObjCError error 0.)"}'
+    exit 1
+    ;;
+
+  damaged-at-zero*)
+    # Fails before any audio is decoded. Must NOT trigger recovery: nothing
+    # about the audio data is implicated, so re-encoding only wastes minutes.
+    emit '{"type":"ready","durationSec":10}'
+    emit '{"type":"error","code":"unknown","message":"failed before decoding any audio"}'
+    exit 1
+    ;;
+
   basic*)
     emit '{"type":"ready","durationSec":10}'
     # Small deliberate delay so tests have a window to observe this job as

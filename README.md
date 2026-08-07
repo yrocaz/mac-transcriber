@@ -25,7 +25,8 @@ prose quality, plus timestamped `segments` for citing the source media.
 ```sh
 git clone https://github.com/yrocaz/mac-transcriber.git
 cd mac-transcriber
-./transcribe /path/to/recording.wav
+./transcribe /path/to/recording.wav      # one file
+./transcribe /path/to/recordings/        # or a whole tree
 ```
 
 The wrapper builds both components on first run, then asks how many speakers
@@ -73,6 +74,98 @@ piped or scripted runs never block, and `--no-prompt` disables the question.
 
 The HTTP API takes the same hints as `speakers` / `minSpeakers` /
 `maxSpeakers` on `POST /jobs`.
+
+### Transcribe a whole folder
+
+Point it at a directory and it walks the tree:
+
+```sh
+./transcribe ~/Recordings --out ~/Transcripts --hints hints.txt
+```
+
+```
+  [7/43] 3rd State of Econ/3rd state of econ - panel.wav
+  Transcribing  ████████████████░░░░░░░  68%  ~24s
+
+  43 media files · 42 transcribed · 0 skipped · 1 failed
+  1 recovered from damaged source media
+
+  failed:
+    Sept 2023 - Tenant - Landlord Edit 2.mp3 — audioReadFailed: no audio track
+
+  log: /Users/you/Transcripts/_run.log
+```
+
+With `--out`, the source layout is mirrored under it, so identically-named
+files stay separate — this matters more than it looks. A real archive had
+`Panel.wav` in four different event folders; writing them all to one directory
+would leave 4 recordings and 1 surviving transcript.
+
+```
+Recordings/Next Deal Edit/Panel.wav  →  Transcripts/Next Deal Edit/Panel/
+```
+
+Without `--out`, each file's transcripts land beside it, exactly as in
+single-file mode.
+
+Three behaviours make an unattended run survivable:
+
+- **Completed files are skipped**, so an interrupted run resumes for free.
+  `--force` reprocesses everything.
+- **One bad file costs one file.** The run continues and exits non-zero, with
+  every failure named in the summary and in `_run.log`.
+- **`_run.log`** is written as the run goes, so you can tail it from another
+  terminal.
+
+#### Per-file speaker hints
+
+One `--speakers` for a whole archive is wrong whenever panels and solo
+segments share a tree. A hints file routes each file to the right count — one
+glob per line, **first match wins**, `#` comments:
+
+```
+# hints.txt
+*[Pp]anel*        --speakers 5
+*Market Update*   --min-speakers 1 --max-speakers 2
+*Intro*           --min-speakers 1 --max-speakers 2
+*/RR.wav          --min-speakers 1 --max-speakers 2
+*                 --speakers 5
+```
+
+Globs match the path relative to the walk root — so `*/RR.wav` is
+folder-aware — and support `*`, `?`, and `[...]` classes. Names with spaces
+work as written: the glob ends at the first flag, not the first space. Files
+matching no rule fall back to the `--speakers`/`--min-speakers`/`--max-speakers`
+you passed on the command line.
+
+Only speaker flags are allowed in a rules file, and an unknown flag is a hard
+error naming the line — a typo'd `--speaker 5` that silently parsed as "no
+hint" would mis-diarize every file the rule was written for.
+
+See [docs/batch-transcription.md](docs/batch-transcription.md) for a full
+worked example.
+
+### Damaged source media recovers itself
+
+Some files are subtly corrupt. The signature is a transcription that aborts
+partway through at the *same* offset every time — a damaged frame, not bad
+luck, so retrying the same input fails identically forever.
+
+When a job fails either before the audio opens (`audioReadFailed`) or partway
+through with a generic error, the transcript is re-attempted **once** from an
+`afconvert` WAV re-encode of the same audio. That rewrites the stream and
+usually clears the fault:
+
+```
+warning: recoveredByReencode: Source media failed at 62.3% (unknown);
+         transcribed from an afconvert WAV re-encode.
+```
+
+Recovered transcripts record the **original** file as their source, not the
+temp copy, and the warning is kept so a recovered transcript is
+self-describing. Your media is never modified. A failure at 0% is *not*
+retried — nothing was decoded, so the fault is upstream of the audio and a
+re-encode would only waste minutes.
 
 ### Know where the transcript is shaky
 
@@ -126,9 +219,17 @@ No database — job records live as JSON files under `data/jobs/<id>/`. No
 authentication — the API binds to `127.0.0.1` only and is meant to run
 alongside you on your own Mac, not be exposed to a network.
 
+Task guides:
+
+- [Transcribing an archive](docs/batch-transcription.md) — tree mode end to
+  end, hints files, resuming, verifying a finished batch
+- [Troubleshooting](docs/troubleshooting.md) — symptom-first: damaged media,
+  missing transcripts, under-clustered panels, hints that don't match
+
 Full design rationale, API contract, and the research this was built from:
 
 - [Design spec](docs/superpowers/specs/2026-07-27-media-transcriber-design.md)
+- [Tree mode & recovery spec](docs/superpowers/specs/2026-08-07-tree-mode-and-recovery-design.md)
 - [Apple SpeechAnalyzer research](docs/research/2026-07-27-apple-speechanalyzer-docs.md)
 - [FluidAudio evaluation notes](docs/research/2026-07-27-fluidaudio-notes.md)
 - [GitHub OSS ecosystem research](docs/research/2026-07-27-github-oss-research.md)
@@ -393,14 +494,22 @@ the script generates and why the malformed MP3 isn't committed.
 
 ```
 $ npm test
- ✓ test/unit/progress.test.ts (7 tests)
+ ✓ test/unit/hints.test.ts (17 tests)
  ✓ test/unit/config.test.ts (3 tests)
+ ✓ test/unit/progress.test.ts (7 tests)
  ✓ test/unit/transcript.test.ts (25 tests)
- ✓ test/unit/jobStore.test.ts (6 tests)
+ ✓ test/unit/review.test.ts (19 tests)
+ ✓ test/unit/tree.test.ts (10 tests)
+ ✓ test/unit/cliRender.test.ts (19 tests)
+ ✓ test/unit/cliArgs.test.ts (9 tests)
+ ✓ test/unit/jobStore.test.ts (10 tests)
+ ✓ test/unit/recover.test.ts (9 tests)
+ ✓ test/unit/runFile.test.ts (7 tests)
  ✓ test/unit/routes.test.ts (23 tests)
+ ✓ test/unit/runTree.test.ts (10 tests)
  ✓ test/unit/supervisor.test.ts (14 tests)
- Test Files  6 passed (6)
-      Tests  78 passed (78)
+ Test Files  14 passed (14)
+      Tests  182 passed (182)
 ```
 
 `npm run test:e2e` builds `speech-helper` automatically if the release
@@ -577,6 +686,13 @@ as "fixture not ready" and skips.
   (including an out-of-memory condition) degrades gracefully by design: any
   error there is non-fatal (spec §8), reported as a `diarizationFailed`
   warning, and the transcript from transcription is still delivered intact.
+- **Damaged-media recovery needs temp space proportional to the recording.**
+  `recover.ts` re-encodes to uncompressed 16-bit mono WAV, so a 56-minute MP3
+  becomes roughly 300MB in `$TMPDIR` for the duration of the retry. The file
+  is removed in a `finally` (including when transcription throws), so a batch
+  cannot accumulate them — but a single very long recording still needs the
+  headroom while it runs. Recovery is attempted once per file, never in a
+  loop.
 - **Per-event synchronous whole-record disk write.** `JobStore.persist()`
   (in `jobStore.ts`) rewrites the entire `job.json` on every single job
   update, synchronously. Fine at this project's scale (single-user,

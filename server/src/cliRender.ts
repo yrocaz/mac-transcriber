@@ -134,3 +134,19 @@ export function renderHeader(fileName: string, durationSec: number | null): stri
   const duration = durationSec === null ? "" : ` · ${formatDuration(durationSec)}`;
   return `  ${fileName}${duration}`;
 }
+
+/**
+ * Renders a job's terminal error for humans. Exists because `cli.ts` used to
+ * interpolate the `JobError` object straight into a template string, so every
+ * job-level failure printed `error: [object Object]` — during a 43-file batch
+ * run the only way to learn why a file failed was to read
+ * `data/jobs/<id>/job.json` by hand.
+ *
+ * Takes the whole nullable record rather than a non-null error so callers can
+ * pass `job?.error` directly; a job that ended without either a `done` status
+ * or an error is a bug elsewhere, but it should still print something useful.
+ */
+export function formatJobError(error: { code: string; message: string } | null | undefined): string {
+  if (!error) return "job did not complete";
+  return `${error.code}: ${error.message}`;
+}

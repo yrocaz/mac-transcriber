@@ -50,6 +50,12 @@ server/test/fixtures/media/*/
 !server/test/fixtures/media/basic.wav
 !server/test/fixtures/media/basic2.wav
 
+# Scenario selectors for the fake helper, which picks its behaviour from the
+# input's basename and never opens the file — so these are 0-byte placeholders,
+# not media. They must be committed or the unit suite fails on a fresh clone.
+!server/test/fixtures/media/damaged-midfile.mp3
+!server/test/fixtures/media/damaged-at-zero.mp3
+
 # Credentials, in case anyone wires this into something that needs them.
 .env
 .env.*

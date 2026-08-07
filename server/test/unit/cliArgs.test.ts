@@ -16,6 +16,8 @@ describe("parseArgs", () => {
       maxSpeakers: null,
       outDir: null,
       noPrompt: false,
+      hintsFile: null,
+      force: false,
     });
   });
 
@@ -42,7 +44,7 @@ describe("parseArgs", () => {
   });
 
   it("rejects a missing input and a second positional argument", () => {
-    expect(parseArgs([])).toEqual({ error: "Missing required <media-file> argument" });
+    expect(parseArgs([])).toEqual({ error: "Missing required <media-file|directory> argument" });
     expect(parseArgs(["a.wav", "b.wav"])).toEqual({
       error: "Unexpected extra argument: b.wav",
     });

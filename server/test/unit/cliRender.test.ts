@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   estimateRemaining,
   formatDuration,
+  formatJobError,
   isIndeterminate,
   phaseLabel,
   renderBar,
@@ -185,5 +186,21 @@ describe("phase derivation", () => {
     for (const p of ["preparing", "downloading", "transcribing", "identifying", "done"] as const) {
       expect(phaseLabel(p).length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("formatJobError", () => {
+  it("renders code and message, not [object Object]", () => {
+    // The bug this replaced: cli.ts interpolated the JobError object into a
+    // template string, so every job-level failure printed `error: [object
+    // Object]` and the only way to learn why was to read job.json by hand.
+    expect(
+      formatJobError({ code: "unknown", message: "The operation could not be completed." }),
+    ).toBe("unknown: The operation could not be completed.");
+  });
+
+  it("falls back for a job that ended without an error record", () => {
+    expect(formatJobError(null)).toBe("job did not complete");
+    expect(formatJobError(undefined)).toBe("job did not complete");
   });
 });

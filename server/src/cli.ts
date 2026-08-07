@@ -10,19 +10,22 @@
  * the bar is suppressed entirely when stderr isn't a TTY — the isatty
  * convention yap uses, which keeps CI logs and `2>file` output readable.
  */
+import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import readline from "node:readline/promises";
 import { loadConfig, DEFAULT_LOCALE } from "./config";
 import { JobStore } from "./jobStore";
 import { HelperSupervisor } from "./supervisor";
-import { newJobId } from "./idgen";
 import { validateMediaPath, defaultOutputDir } from "./validateInput";
 import { assembleTranscript } from "./transcript";
 import { collectReviewItems } from "./review";
 import { TRANSCRIBE_SHARE } from "./progress";
+import { transcribeOne } from "./runFile";
+import { runTree, runLogPath, type TreeSummary } from "./runTree";
+import { parseHints, type HintRule } from "./hints";
 import type { JobRecord } from "./types";
-import { type Phase, renderHeader, renderStatusLine } from "./cliRender";
+import { type Phase, formatJobError, renderHeader, renderStatusLine } from "./cliRender";
 
 const REDRAW_INTERVAL_MS = 100;
 
@@ -39,12 +42,17 @@ interface CliArgs {
   outDir: string | null;
   /** Skip the interactive questionnaire even on a TTY. */
   noPrompt: boolean;
+  /** Path to a per-file speaker-hint rules file (tree mode only). */
+  hintsFile: string | null;
+  /** Re-transcribe files that already have output (tree mode only). */
+  force: boolean;
 }
 
-const USAGE = `Usage: transcribe <media-file> [options]
+const USAGE = `Usage: transcribe <media-file|directory> [options]
 
 Transcribes a local audio or video file on-device using Apple SpeechAnalyzer,
-with speaker identification via FluidAudio.
+with speaker identification via FluidAudio. Given a directory, walks it
+recursively and transcribes every media file found.
 
 Options:
   --speakers <n>       Exact number of speakers, when known. Improves accuracy
@@ -56,12 +64,26 @@ Options:
   --no-diarize         Skip speaker identification (faster)
   --out <dir>          Write transcripts here instead of beside the media file
   --json               Print the full transcript as JSON to stdout
+                       (in tree mode, prints the run summary instead)
   --quiet              Suppress the progress bar
   --no-prompt          Never ask questions; use defaults for anything omitted
   -h, --help           Show this help
 
+Directory (tree) mode:
+  --hints <file>       Per-file speaker rules: one "<glob> <flags>" per line,
+                       first match wins. Lets panels take --speakers 5 while
+                       solo segments take --min-speakers 1 --max-speakers 2 in
+                       the same run.
+  --force              Re-transcribe files that already have a transcript.
+                       Without it, completed files are skipped, so an
+                       interrupted run resumes for free.
+
 Transcripts are written to a folder named after the media file, beside it:
   /recordings/Panel.wav  ->  /recordings/Panel/{transcript.txt,.json,.srt,review.md}
+
+In tree mode with --out, the source layout is mirrored under it:
+  Recordings/Next Deal Edit/Panel.wav  ->  <out>/Next Deal Edit/Panel/
+A run log is written to <out>/_run.log (or <dir>/_run.log without --out).
 
 Output goes to stdout (the transcript folder, or JSON with --json); progress
 is drawn on stderr and hidden automatically when stderr is not a terminal.`;
@@ -77,6 +99,8 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { error: s
   let maxSpeakers: number | null = null;
   let outDir: string | null = null;
   let noPrompt = false;
+  let hintsFile: string | null = null;
+  let force = false;
 
   const readCount = (raw: string | undefined, flag: string): number | string => {
     if (!raw) return `${flag} requires a value`;
@@ -92,6 +116,12 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { error: s
     else if (arg === "--json") json = true;
     else if (arg === "--quiet") quiet = true;
     else if (arg === "--no-prompt") noPrompt = true;
+    else if (arg === "--force") force = true;
+    else if (arg === "--hints") {
+      const value = argv[++i];
+      if (!value) return { error: "--hints requires a value" };
+      hintsFile = value;
+    }
     else if (arg === "--speakers" || arg === "--min-speakers" || arg === "--max-speakers") {
       const value = readCount(argv[++i], arg);
       if (typeof value === "string") return { error: value };
@@ -116,7 +146,7 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { error: s
     }
   }
 
-  if (input === null) return { error: "Missing required <media-file> argument" };
+  if (input === null) return { error: "Missing required <media-file|directory> argument" };
   if (minSpeakers !== null && maxSpeakers !== null && minSpeakers > maxSpeakers) {
     return { error: "--min-speakers must be <= --max-speakers" };
   }
@@ -131,6 +161,8 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { error: s
     maxSpeakers,
     outDir,
     noPrompt,
+    hintsFile,
+    force,
   };
 }
 
@@ -229,6 +261,90 @@ async function askQuestions(args: CliArgs): Promise<CliArgs> {
   }
 }
 
+/**
+ * Renders the end-of-run summary. Failures are listed individually and last,
+ * where they stay on screen — a run that reports only "43 files, 1 failed"
+ * makes you go hunting through the log for which one.
+ */
+export function renderTreeSummary(summary: TreeSummary): string {
+  const lines = [
+    "",
+    `  ${summary.total} media files · ${summary.done} transcribed · ` +
+      `${summary.skipped} skipped · ${summary.failed} failed`,
+  ];
+  if (summary.recovered > 0) {
+    lines.push(`  ${summary.recovered} recovered from damaged source media`);
+  }
+  if (summary.failed > 0) {
+    lines.push("", "  failed:");
+    for (const outcome of summary.outcomes.filter((o) => o.status === "failed")) {
+      lines.push(`    ${outcome.relativePath} — ${outcome.error ?? "unknown error"}`);
+    }
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function loadHints(hintsFile: string | null): HintRule[] | { error: string } {
+  if (!hintsFile) return [];
+  try {
+    return parseHints(fs.readFileSync(path.resolve(hintsFile), "utf8"));
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Tree mode. Never prompts — a walk of unknown size can't sensibly ask about
+ * speaker counts per file, which is what --hints is for.
+ */
+async function runTreeMode(
+  args: CliArgs,
+  root: string,
+  store: JobStore,
+  supervisor: HelperSupervisor,
+  bar: ProgressBar | null,
+  onJobStart: (id: string) => void,
+): Promise<number> {
+  const hints = loadHints(args.hintsFile);
+  if ("error" in hints) {
+    process.stderr.write(`error: ${hints.error}\n`);
+    return 2;
+  }
+
+  const summary = await runTree(supervisor, store, {
+    root,
+    outRoot: args.outDir ? path.resolve(args.outDir) : null,
+    locale: args.locale,
+    diarize: args.diarize,
+    speakerHint:
+      args.speakers === null && args.minSpeakers === null && args.maxSpeakers === null
+        ? null
+        : { exact: args.speakers, min: args.minSpeakers, max: args.maxSpeakers },
+    hints,
+    force: args.force,
+    onJobStart,
+    onFileStart: (index, total, relativePath) => {
+      if (!bar) return;
+      process.stderr.write(`\n  [${index}/${total}] ${relativePath}\n\n`);
+      bar.start();
+    },
+    onFileEnd: () => bar?.stop(),
+  });
+
+  if (args.json) {
+    process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+  } else {
+    if (bar) process.stderr.write(renderTreeSummary(summary));
+    process.stderr.write(`  log: ${runLogPath(root, args.outDir ? path.resolve(args.outDir) : null)}\n\n`);
+    // stdout stays pipeable: one output directory per line.
+    for (const outcome of summary.outcomes) {
+      if (outcome.status !== "failed") process.stdout.write(`${outcome.outputDir}\n`);
+    }
+  }
+  // Non-zero on any failure so `transcribe dir/ && next-step` behaves.
+  return summary.failed > 0 ? 1 : 0;
+}
+
 export async function main(argv: string[]): Promise<number> {
   const parsed = parseArgs(argv);
   if ("help" in parsed) {
@@ -242,13 +358,17 @@ export async function main(argv: string[]): Promise<number> {
 
   const args = parsed;
   const absolute = path.resolve(args.input);
-  const invalid = validateMediaPath(absolute);
-  if (invalid) {
-    process.stderr.write(`error: ${invalid}\n`);
+
+  // Directory in, tree mode. Checked before validateMediaPath, which is
+  // file-shaped and would reject a directory for having no media extension.
+  let inputIsDirectory = false;
+  try {
+    inputIsDirectory = fs.statSync(absolute).isDirectory();
+  } catch {
+    process.stderr.write(`error: Path does not exist: ${absolute}\n`);
     return 2;
   }
 
-  const args2 = await askQuestions(args);
   const config = loadConfig();
   const store = new JobStore(config.dataDir);
   store.init();
@@ -257,31 +377,13 @@ export async function main(argv: string[]): Promise<number> {
     timeouts: config.timeouts,
   });
 
-  const outputDir = args2.outDir
-    ? path.resolve(args2.outDir)
-    : defaultOutputDir(absolute);
-
-  const job = store.createJob({
-    id: newJobId(),
-    path: absolute,
-    locale: args2.locale,
-    diarize: args2.diarize,
-    speakerHint:
-      args2.speakers === null && args2.minSpeakers === null && args2.maxSpeakers === null
-        ? null
-        : { exact: args2.speakers, min: args2.minSpeakers, max: args2.maxSpeakers },
-    outputDir,
-  });
-
-  const showBar = !args2.quiet && process.stderr.isTTY === true;
+  // The bar follows whichever job is live. Recovery starts a second job for
+  // the same file, so a bar bound to one fixed id would freeze mid-run.
+  let currentJobId: string | null = null;
+  const showBar = !args.quiet && process.stderr.isTTY === true;
   const bar = showBar
-    ? new ProgressBar(() => store.getJob(job.id), process.stderr)
+    ? new ProgressBar(() => (currentJobId ? store.getJob(currentJobId) : undefined), process.stderr)
     : null;
-
-  if (showBar) {
-    process.stderr.write(`\n${renderHeader(path.basename(absolute), null)}\n\n`);
-    bar!.start();
-  }
 
   // Kill the helper rather than orphaning it if the user interrupts the CLI.
   const onSignal = (signal: NodeJS.Signals) => {
@@ -293,14 +395,48 @@ export async function main(argv: string[]): Promise<number> {
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
 
-  await supervisor.run(job, store);
+  if (inputIsDirectory) {
+    return await runTreeMode(args, absolute, store, supervisor, bar, (id) => {
+      currentJobId = id;
+    });
+  }
+
+  const invalid = validateMediaPath(absolute);
+  if (invalid) {
+    process.stderr.write(`error: ${invalid}\n`);
+    return 2;
+  }
+
+  const args2 = await askQuestions(args);
+  const outputDir = args2.outDir ? path.resolve(args2.outDir) : defaultOutputDir(absolute);
+
+  if (showBar) {
+    process.stderr.write(`\n${renderHeader(path.basename(absolute), null)}\n\n`);
+    bar!.start();
+  }
+
+  const { job: final, recovered } = await transcribeOne(supervisor, store, {
+    mediaPath: absolute,
+    outputDir,
+    locale: args2.locale,
+    diarize: args2.diarize,
+    speakerHint:
+      args2.speakers === null && args2.minSpeakers === null && args2.maxSpeakers === null
+        ? null
+        : { exact: args2.speakers, min: args2.minSpeakers, max: args2.maxSpeakers },
+    onJobStart: (id) => {
+      currentJobId = id;
+    },
+  });
   bar?.stop();
 
-  const final = store.getJob(job.id);
   if (!final || final.status !== "done") {
-    process.stderr.write(`error: ${final?.error ?? "job did not complete"}\n`);
+    process.stderr.write(`error: ${formatJobError(final?.error)}\n`);
     if (final?.stderrTail) process.stderr.write(`${final.stderrTail}\n`);
     return 1;
+  }
+  if (recovered && showBar) {
+    process.stderr.write("  recovered: transcribed from a re-encoded copy of the source\n");
   }
 
   for (const warning of final.warnings) {
