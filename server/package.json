@@ -23,7 +23,7 @@
     "prepare": "cd \"$(git rev-parse --show-toplevel)\" 2>/dev/null && git config core.hooksPath .githooks && chmod +x .githooks/pre-push || true"
   },
   "dependencies": {
-    "fastify": "^5.11.2",
+    "fastify": "^5.12.5",
     "nanoid": "^3.3.11",
     "zod": "^3.24.1"
   },
